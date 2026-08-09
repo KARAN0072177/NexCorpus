@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { configureCustomDns } from "@/lib/dns";
+import { configureCustomDns, resolveMongoUri } from "@/lib/dns";
 
 // Configure DNS to use Google/Cloudflare DNS to resolve MongoDB Atlas SRV records
 configureCustomDns();
@@ -32,7 +32,10 @@ export async function connectToDatabase() {
   }
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI!).catch((err) => {
+    cached.promise = (async () => {
+      const targetUri = await resolveMongoUri(MONGODB_URI!);
+      return mongoose.connect(targetUri);
+    })().catch((err) => {
       cached.promise = null;
       throw err;
     });
@@ -47,4 +50,3 @@ export async function connectToDatabase() {
 
   return cached.conn;
 }
-

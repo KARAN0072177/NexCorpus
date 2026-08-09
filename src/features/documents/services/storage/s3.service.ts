@@ -60,3 +60,24 @@ export async function getObjectMetadata({
 
   return s3Client.send(command);
 }
+
+export async function getObject({
+  key,
+}: {
+  key: string;
+}) {
+  const command = new GetObjectCommand({
+    Bucket: S3_BUCKET_NAME,
+    Key: key,
+  });
+
+  const response = await s3Client.send(command);
+
+  if (!response.Body) {
+    throw new Error("S3 object body is empty");
+  }
+
+  const bytes = await response.Body.transformToByteArray();
+
+  return Buffer.from(bytes);
+}
