@@ -30,7 +30,7 @@ export class DocumentStructureService {
       },
       {
         upsert: true,
-        new: true,
+        returnDocument: "after",
         setDefaultsOnInsert: true,
       }
     );

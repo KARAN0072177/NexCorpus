@@ -34,7 +34,7 @@ const sectionSchema = new Schema(
     },
 
     sourceBlockIds: {
-      type: [Schema.Types.ObjectId],
+      type: [String],
       required: true,
       default: [],
     },
@@ -51,27 +51,31 @@ sectionSchema.add({
   },
 });
 
-const documentStructureSchema =
-  new Schema<IDocumentStructure>(
-    {
-      documentId: {
-        type: Schema.Types.ObjectId,
-        ref: "Document",
-        required: true,
-        unique: true,
-        index: true,
-      },
-
-      sections: {
-        type: [sectionSchema],
-        required: true,
-        default: [],
-      },
+const documentStructureSchema = new Schema<IDocumentStructure>(
+  {
+    documentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Document",
+      required: true,
+      unique: true,
+      index: true,
     },
-    {
-      timestamps: true,
-    }
-  );
+
+    sections: {
+      type: [sectionSchema],
+      required: true,
+      default: [],
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Delete cached model in Next.js development mode so schema updates take effect
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).DocumentStructure;
+}
 
 export const DocumentStructure: Model<IDocumentStructure> =
   mongoose.models.DocumentStructure ||
