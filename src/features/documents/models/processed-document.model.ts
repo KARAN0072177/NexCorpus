@@ -1,35 +1,35 @@
 import mongoose, { Schema, type Model } from "mongoose";
 
+export type ContentBlockBase = {
+  id: string;
+  page?: number;
+};
+
 export type ContentBlock =
-  | {
+  | (ContentBlockBase & {
       type: "heading";
       level: number;
       text: string;
-      page?: number;
-    }
-  | {
+    })
+  | (ContentBlockBase & {
       type: "paragraph";
       text: string;
-      page?: number;
-    }
-  | {
+    })
+  | (ContentBlockBase & {
       type: "code";
       language?: string;
       text: string;
-      page?: number;
-    }
-  | {
+    })
+  | (ContentBlockBase & {
       type: "list";
       ordered: boolean;
       items: string[];
-      page?: number;
-    }
-  | {
+    })
+  | (ContentBlockBase & {
       type: "table";
       headers: string[];
       rows: string[][];
-      page?: number;
-    };
+    });
 
 export interface IProcessedDocument {
   documentId: mongoose.Types.ObjectId;
@@ -51,15 +51,14 @@ export interface IProcessedDocument {
 
 const contentBlockSchema = new Schema(
   {
+    id: {
+      type: String,
+      required: true,
+    },
+
     type: {
       type: String,
-      enum: [
-        "heading",
-        "paragraph",
-        "code",
-        "list",
-        "table",
-      ],
+      enum: ["heading", "paragraph", "code", "list", "table"],
       required: true,
     },
 
@@ -102,53 +101,57 @@ const contentBlockSchema = new Schema(
     },
   },
   {
-    _id: false,
+    _id: true,
   }
 );
 
-const processedDocumentSchema =
-  new Schema<IProcessedDocument>(
-    {
-      documentId: {
-        type: Schema.Types.ObjectId,
-        ref: "Document",
+const processedDocumentSchema = new Schema<IProcessedDocument>(
+  {
+    documentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Document",
+      required: true,
+      unique: true,
+      index: true,
+    },
+
+    source: {
+      filename: {
+        type: String,
         required: true,
-        unique: true,
-        index: true,
+        trim: true,
       },
 
-      source: {
-        filename: {
-          type: String,
-          required: true,
-          trim: true,
-        },
-
-        mimeType: {
-          type: String,
-          required: true,
-          trim: true,
-          lowercase: true,
-        },
-      },
-
-      metadata: {
-        pageCount: {
-          type: Number,
-          min: 1,
-        },
-      },
-
-      blocks: {
-        type: [contentBlockSchema],
+      mimeType: {
+        type: String,
         required: true,
-        default: [],
+        trim: true,
+        lowercase: true,
       },
     },
-    {
-      timestamps: true,
-    }
-  );
+
+    metadata: {
+      pageCount: {
+        type: Number,
+        min: 1,
+      },
+    },
+
+    blocks: {
+      type: [contentBlockSchema],
+      required: true,
+      default: [],
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Delete cached model in Next.js development mode so schema updates take effect
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).ProcessedDocument;
+}
 
 export const ProcessedDocument: Model<IProcessedDocument> =
   mongoose.models.ProcessedDocument ||
