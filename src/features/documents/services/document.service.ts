@@ -61,3 +61,32 @@ export async function deleteDocument(
     ownerId,
   });
 }
+
+export async function markDocumentUploaded({
+  documentId,
+  ownerId,
+  storageKey,
+}: {
+  documentId: string;
+  ownerId: string;
+  storageKey: string;
+}) {
+  await connectToDatabase();
+
+  return Document.findOneAndUpdate(
+    {
+      _id: documentId,
+      ownerId,
+      storageStatus: "PENDING",
+    },
+    {
+      $set: {
+        storageKey,
+        storageStatus: "UPLOADED",
+      },
+    },
+    {
+      new: true,
+    }
+  );
+}
