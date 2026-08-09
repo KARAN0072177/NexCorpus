@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { auth } from "../../../../../auth";
+import { requireApiUser } from "@/lib/auth/require-api-user";
+
 import {
   findUserByUsername,
-  findUserById,
   updateUsername,
 } from "@/features/auth/services/user.service";
 
@@ -14,15 +14,10 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
+    const { user, response } = await requireApiUser();
 
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized",
-        },
-        { status: 401 }
-      );
+    if (response) {
+      return response;
     }
 
     const body = await request.json();
@@ -48,18 +43,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const currentUser = await findUserById(session.user.id);
-
-    if (!currentUser) {
-      return NextResponse.json(
-        {
-          error: "User not found",
-        },
-        { status: 404 }
-      );
-    }
-
-    if (currentUser.username) {
+    if (user.username) {
       return NextResponse.json(
         {
           error: "Username has already been set",
@@ -80,7 +64,7 @@ export async function POST(request: Request) {
     }
 
     const updatedUser = await updateUsername(
-      session.user.id,
+      user._id.toString(),
       username
     );
 
@@ -112,30 +96,12 @@ export async function POST(request: Request) {
   }
 }
 
-// get username status
-
 export async function GET() {
   try {
-    const session = await auth();
+    const { user, response } = await requireApiUser();
 
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Unauthorized",
-        },
-        { status: 401 }
-      );
-    }
-
-    const user = await findUserById(session.user.id);
-
-    if (!user) {
-      return NextResponse.json(
-        {
-          error: "User not found",
-        },
-        { status: 404 }
-      );
+    if (response) {
+      return response;
     }
 
     return NextResponse.json({
