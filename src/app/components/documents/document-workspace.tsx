@@ -1,42 +1,266 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
 import DocumentList from "./document-list";
 
 interface DocumentWorkspaceProps {
   username: string;
 }
 
+interface DocumentItem {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  extension: string;
+  size: number;
+
+  storageStatus: "PENDING" | "UPLOADED" | "FAILED";
+  securityStatus:
+    | "PENDING"
+    | "SCANNING"
+    | "APPROVED"
+    | "REJECTED"
+    | "FAILED";
+
+  processingStatus:
+    | "NOT_STARTED"
+    | "PROCESSING"
+    | "COMPLETED"
+    | "FAILED";
+
+  indexingStatus:
+    | "NOT_STARTED"
+    | "PROCESSING"
+    | "COMPLETED"
+    | "FAILED";
+
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function DocumentWorkspace({
   username,
 }: DocumentWorkspaceProps) {
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [error, setError] = useState("");
 
-  function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setIsDragging(true);
+  async function loadDocuments() {
+    try {
+      const response = await fetch("/api/documents", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "Unable to load documents");
+      }
+
+      setDocuments(data.documents ?? []);
+    } catch (error) {
+      console.error("Failed to load documents:", error);
+      setError("Unable to load your documents.");
+    }
   }
 
-  function handleDragLeave(event: React.DragEvent<HTMLDivElement>) {
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  async function uploadFile(file: File) {
+    setError("");
+    setUploadMessage("");
+    setIsUploading(true);
+
+    try {
+      /*
+       * STEP 1
+       * Create the MongoDB document.
+       */
+
+      setUploadMessage("Creating document...");
+
+      const createResponse = await fetch("/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          originalFilename: file.name,
+          mimeType: file.type,
+          extension: getExtension(file.name),
+          size: file.size,
+        }),
+      });
+
+      const createData = await createResponse.json();
+
+      if (!createResponse.ok) {
+        throw new Error(
+          createData.error ?? "Unable to create document"
+        );
+      }
+
+      const documentId = createData.document.id;
+
+      /*
+       * STEP 2
+       * Ask NexCorpus for a presigned S3 upload URL.
+       */
+
+      setUploadMessage("Preparing secure upload...");
+
+      const presignedResponse = await fetch(
+        `/api/documents/${documentId}/upload`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contentType: file.type,
+          }),
+        }
+      );
+
+      const presignedData = await presignedResponse.json();
+
+      if (!presignedResponse.ok) {
+        throw new Error(
+          presignedData.error ??
+            "Unable to prepare file upload"
+        );
+      }
+
+      /*
+       * STEP 3
+       * Upload directly from browser → private S3.
+       */
+
+      setUploadMessage("Uploading to S3...");
+
+      const s3Response = await fetch(
+        presignedData.uploadUrl,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type,
+          },
+          body: file,
+        }
+      );
+
+      if (!s3Response.ok) {
+        throw new Error("S3 upload failed");
+      }
+
+      /*
+       * STEP 4
+       * Tell NexCorpus that the upload finished.
+       * The backend verifies the object with HeadObject.
+       */
+
+      setUploadMessage("Verifying upload...");
+
+      const completeResponse = await fetch(
+        `/api/documents/${documentId}/upload/complete`,
+        {
+          method: "POST",
+        }
+      );
+
+      const completeData = await completeResponse.json();
+
+      if (!completeResponse.ok) {
+        throw new Error(
+          completeData.error ??
+            "Unable to verify uploaded file"
+        );
+      }
+
+      setUploadMessage("Upload complete.");
+
+      await loadDocuments();
+
+      setTimeout(() => {
+        setUploadMessage("");
+      }, 2000);
+    } catch (error) {
+      console.error("Upload failed:", error);
+
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Upload failed."
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  function getExtension(filename: string) {
+    const lastDot = filename.lastIndexOf(".");
+
+    if (lastDot === -1) {
+      return "";
+    }
+
+    return filename.slice(lastDot).toLowerCase();
+  }
+
+  function handleDragOver(
+    event: React.DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+
+    if (!isUploading) {
+      setIsDragging(true);
+    }
+  }
+
+  function handleDragLeave(
+    event: React.DragEvent<HTMLDivElement>
+  ) {
     event.preventDefault();
     setIsDragging(false);
   }
 
-  function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+  async function handleDrop(
+    event: React.DragEvent<HTMLDivElement>
+  ) {
     event.preventDefault();
     setIsDragging(false);
+
+    if (isUploading) {
+      return;
+    }
 
     const files = Array.from(event.dataTransfer.files);
 
-    console.log("Dropped files:", files);
+    if (files.length === 0) {
+      return;
+    }
+
+    await uploadFile(files[0]);
   }
 
-  function handleFileSelect(
+  async function handleFileSelect(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
-    const files = Array.from(event.target.files ?? []);
+    const file = event.target.files?.[0];
 
-    console.log("Selected files:", files);
+    if (!file) {
+      return;
+    }
+
+    await uploadFile(file);
+
+    event.target.value = "";
   }
 
   return (
@@ -66,7 +290,8 @@ export default function DocumentWorkspace({
           </h1>
 
           <p className="mt-2 text-sm text-white/40">
-            Upload documents and build your searchable knowledge base.
+            Upload documents and build your searchable
+            knowledge base.
           </p>
         </div>
 
@@ -80,6 +305,9 @@ export default function DocumentWorkspace({
               isDragging
                 ? "border-white/50 bg-white/[0.06]"
                 : "border-white/15 bg-white/[0.02]",
+              isUploading
+                ? "cursor-wait opacity-70"
+                : "",
             ].join(" ")}
           >
             <div className="mx-auto max-w-md">
@@ -88,30 +316,50 @@ export default function DocumentWorkspace({
               </div>
 
               <h2 className="text-lg font-medium">
-                Upload a document
+                {isUploading
+                  ? "Uploading document..."
+                  : "Upload a document"}
               </h2>
 
               <p className="mt-2 text-sm leading-6 text-white/40">
-                Drag and drop a file here, or choose one from your
-                computer.
+                {isUploading
+                  ? uploadMessage
+                  : "Drag and drop a file here, or choose one from your computer."}
               </p>
 
-              <label className="mt-6 inline-flex cursor-pointer items-center rounded-xl bg-white px-5 py-2.5 text-sm font-medium text-black transition hover:bg-white/90">
-                Choose file
+              {!isUploading && (
+                <label className="mt-6 inline-flex cursor-pointer items-center rounded-xl bg-white px-5 py-2.5 text-sm font-medium text-black transition hover:bg-white/90">
+                  Choose file
 
-                <input
-                  type="file"
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-              </label>
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                    disabled={isUploading}
+                  />
+                </label>
+              )}
 
-              <p className="mt-4 text-xs text-white/25">
-                File upload will be connected to S3 in the next
-                step.
-              </p>
+              {!isUploading && (
+                <p className="mt-4 text-xs text-white/25">
+                  Files are uploaded directly to private
+                  storage.
+                </p>
+              )}
             </div>
           </div>
+
+          {uploadMessage && !isUploading && (
+            <p className="mt-3 text-center text-xs text-white/40">
+              {uploadMessage}
+            </p>
+          )}
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
         </section>
 
         <section className="mt-12">
@@ -121,11 +369,14 @@ export default function DocumentWorkspace({
             </h2>
 
             <span className="text-xs text-white/30">
-              0 documents
+              {documents.length}{" "}
+              {documents.length === 1
+                ? "document"
+                : "documents"}
             </span>
           </div>
 
-          <DocumentList />
+          <DocumentList documents={documents} />
         </section>
       </div>
     </main>
