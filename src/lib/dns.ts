@@ -12,7 +12,14 @@ export function configureCustomDns() {
       "8.8.4.4", // Google Secondary DNS
       "1.0.0.1", // Cloudflare Secondary DNS
     ]);
+    if (typeof dns.setDefaultResultOrder === "function") {
+      dns.setDefaultResultOrder("ipv4first");
+    }
   } catch (error) {
     console.warn("Failed to configure custom DNS servers:", error);
   }
 }
+
+// Automatically configure DNS when this module is imported
+configureCustomDns();
+
