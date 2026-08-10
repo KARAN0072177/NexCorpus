@@ -4,8 +4,12 @@ import { Document } from "../../models/document.model";
 import { ProcessedDocument } from "../../models/processed-document.model";
 import { documentStructureService } from "./document-structure.service";
 import { documentMetadataService } from "./document-metadata.service";
+import { createDocumentAIService } from "./ai/document-ai.service";
+import { openAIProvider } from "./ai/providers/openai.provider";
 
 export class DocumentAnalysisService {
+  private readonly aiService = createDocumentAIService(openAIProvider);
+
   async analyzeDocument(documentId: string) {
     if (!mongoose.Types.ObjectId.isValid(documentId)) {
       throw new Error("Invalid document ID");
@@ -30,10 +34,10 @@ export class DocumentAnalysisService {
     }
 
     /*
-     * Step 1:
-     *
-     * Build the deterministic document
-     * hierarchy from the processed blocks.
+     * --------------------------------------------------
+     * STEP 1
+     * Deterministic structure analysis
+     * --------------------------------------------------
      */
 
     const structure =
@@ -42,10 +46,10 @@ export class DocumentAnalysisService {
       );
 
     /*
-     * Step 2:
-     *
-     * Derive document-level metadata from
-     * the processed content and structure.
+     * --------------------------------------------------
+     * STEP 2
+     * Deterministic metadata analysis
+     * --------------------------------------------------
      */
 
     const metadata =
@@ -54,9 +58,35 @@ export class DocumentAnalysisService {
         structure
       );
 
+    /*
+     * --------------------------------------------------
+     * STEP 3
+     * AI document understanding
+     *
+     * The AI receives the canonical
+     * ProcessedDocument blocks.
+     *
+     * The AI result is NOT persisted or
+     * allowed to overwrite deterministic
+     * analysis yet.
+     * --------------------------------------------------
+     */
+
+    const aiAnalysis =
+      await this.aiService.analyzeDocument(
+        processedDocument
+      );
+
+    /*
+     * --------------------------------------------------
+     * Return all analysis layers.
+     * --------------------------------------------------
+     */
+
     return {
       structure,
       metadata,
+      aiAnalysis,
     };
   }
 }
