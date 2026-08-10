@@ -34,7 +34,18 @@ export const documentAIResultSchema = z.object({
     "unknown",
   ]),
 
-  language: z.string().min(2).max(10).nullable(),
+  language: z
+  .enum([
+    "en",
+    "hi",
+    "gu",
+    "mr",
+    "ta",
+    "te",
+    "bn",
+    "unknown",
+  ])
+  .nullable(),
 
   sections: z.array(documentAISectionSchema),
 });

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 import { Document } from "../../models/document.model";
 import { ProcessedDocument } from "../../models/processed-document.model";
+import { DocumentAIAnalysis } from "../../models/document-ai-analysis.model";
 import { documentStructureService } from "./document-structure.service";
 import { documentMetadataService } from "./document-metadata.service";
 import { createDocumentAIService } from "./ai/document-ai.service";
@@ -62,19 +63,51 @@ export class DocumentAnalysisService {
      * --------------------------------------------------
      * STEP 3
      * AI document understanding
-     *
-     * The AI receives the canonical
-     * ProcessedDocument blocks.
-     *
-     * The AI result is NOT persisted or
-     * allowed to overwrite deterministic
-     * analysis yet.
      * --------------------------------------------------
      */
 
     const aiAnalysis =
       await this.aiService.analyzeDocument(
         processedDocument
+      );
+
+    /*
+     * --------------------------------------------------
+     * STEP 4
+     * Persist AI analysis
+     *
+     * We intentionally keep AI analysis separate
+     * from deterministic structure and metadata.
+     * --------------------------------------------------
+     */
+
+    const savedAIAnalysis =
+      await DocumentAIAnalysis.findOneAndUpdate(
+        {
+          documentId:
+            processedDocument.documentId,
+        },
+        {
+          documentId:
+            processedDocument.documentId,
+
+          titleBlockId:
+            aiAnalysis.titleBlockId,
+
+          documentType:
+            aiAnalysis.documentType,
+
+          language:
+            aiAnalysis.language,
+
+          sections:
+            aiAnalysis.sections,
+        },
+        {
+          upsert: true,
+          returnDocument: "after",
+          setDefaultsOnInsert: true,
+        }
       );
 
     /*
@@ -86,7 +119,8 @@ export class DocumentAnalysisService {
     return {
       structure,
       metadata,
-      aiAnalysis,
+      aiAnalysis:
+        savedAIAnalysis,
     };
   }
 }
