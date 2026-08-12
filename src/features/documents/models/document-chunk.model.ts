@@ -1,7 +1,23 @@
-// src/features/documents/models/document-chunk.model.ts
-import mongoose, { Schema, type Model } from "mongoose";
+import mongoose, {
+  Schema,
+  type Model,
+} from "mongoose";
 
-export type DocumentChunkType = "parent" | "child";
+/*
+ * --------------------------------------------------
+ * CHUNK TYPES
+ * --------------------------------------------------
+ */
+
+export type DocumentChunkType =
+  | "parent"
+  | "child";
+
+/*
+ * --------------------------------------------------
+ * EMBEDDING STATUS
+ * --------------------------------------------------
+ */
 
 export type ChunkEmbeddingStatus =
   | "NOT_STARTED"
@@ -9,16 +25,30 @@ export type ChunkEmbeddingStatus =
   | "COMPLETED"
   | "FAILED";
 
+/*
+ * --------------------------------------------------
+ * INDEXING STATUS
+ * --------------------------------------------------
+ */
+
 export type ChunkIndexingStatus =
   | "NOT_STARTED"
   | "PROCESSING"
   | "COMPLETED"
   | "FAILED";
 
+/*
+ * --------------------------------------------------
+ * DOCUMENT CHUNK INTERFACE
+ * --------------------------------------------------
+ */
+
 export interface IDocumentChunk {
   documentId: mongoose.Types.ObjectId;
 
-  parentChunkId: mongoose.Types.ObjectId | null;
+  parentChunkId:
+  | mongoose.Types.ObjectId
+  | null;
 
   chunkType: DocumentChunkType;
 
@@ -36,7 +66,30 @@ export interface IDocumentChunk {
 
   language: string | null;
 
+  /*
+   * ------------------------------------------------
+   * EMBEDDING
+   * ------------------------------------------------
+   *
+   * We are storing embedding metadata here.
+   *
+   * The actual vector will be added when we
+   * finalize MongoDB Atlas Vector Search storage.
+   */
+
+  embedding: number[] | null;
+
+  embeddingModel: string | null;
+
+  embeddingDimensions: number | null;
+
   embeddingStatus: ChunkEmbeddingStatus;
+
+  /*
+   * ------------------------------------------------
+   * INDEXING
+   * ------------------------------------------------
+   */
 
   indexingStatus: ChunkIndexingStatus;
 
@@ -45,168 +98,218 @@ export interface IDocumentChunk {
   updatedAt: Date;
 }
 
-const documentChunkSchema = new Schema<IDocumentChunk>(
-  {
-    /*
-     * --------------------------------------------------
-     * DOCUMENT
-     * --------------------------------------------------
-     */
+/*
+ * --------------------------------------------------
+ * SCHEMA
+ * --------------------------------------------------
+ */
 
-    documentId: {
-      type: Schema.Types.ObjectId,
-      ref: "Document",
-      required: true,
+const documentChunkSchema =
+  new Schema<IDocumentChunk>(
+    {
+      /*
+       * ----------------------------------------------
+       * DOCUMENT
+       * ----------------------------------------------
+       */
+
+      documentId: {
+        type: Schema.Types.ObjectId,
+        ref: "Document",
+        required: true,
+      },
+
+      /*
+       * ----------------------------------------------
+       * HIERARCHY
+       * ----------------------------------------------
+       *
+       * null for parent chunks.
+       *
+       * Child chunks reference their parent chunk.
+       */
+
+      parentChunkId: {
+        type: Schema.Types.ObjectId,
+        ref: "DocumentChunk",
+        default: null,
+      },
+
+      chunkType: {
+        type: String,
+        enum: [
+          "parent",
+          "child",
+        ],
+        required: true,
+      },
+
+      /*
+       * ----------------------------------------------
+       * CONTENT
+       * ----------------------------------------------
+       */
+
+      text: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      /*
+       * ----------------------------------------------
+       * SEMANTIC LOCATION
+       * ----------------------------------------------
+       *
+       * Example:
+       *
+       * [
+       *   "PROJECTS",
+       *   "NexSyncHub | Real-Time Collaborative SaaS Platform"
+       * ]
+       */
+
+      sectionPath: {
+        type: [String],
+        required: true,
+        default: [],
+      },
+
+      /*
+       * ----------------------------------------------
+       * PROVENANCE
+       * ----------------------------------------------
+       *
+       * These IDs point back to the canonical
+       * ProcessedDocument blocks.
+       */
+
+      sourceBlockIds: {
+        type: [String],
+        required: true,
+        default: [],
+      },
+
+      pageStart: {
+        type: Number,
+        required: true,
+        min: 1,
+      },
+
+      pageEnd: {
+        type: Number,
+        required: true,
+        min: 1,
+      },
+
+      /*
+       * ----------------------------------------------
+       * DOCUMENT CONTEXT
+       * ----------------------------------------------
+       */
+
+      documentType: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      language: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        default: null,
+      },
+
+      /*
+       * ----------------------------------------------
+       * EMBEDDING
+       * ----------------------------------------------
+       *
+       * The actual embedding vector is intentionally
+       * NOT stored yet.
+       *
+       * For V1:
+       *
+       * Provider:
+       * OpenAI
+       *
+       * Model:
+       * text-embedding-3-small
+       *
+       * Dimensions:
+       * 1536
+       *
+       * These fields let us track which model/version
+       * generated a chunk's embedding.
+       */
+
+      embedding: {
+        type: [Number],
+        default: null,
+      },
+
+
+      embeddingModel: {
+        type: String,
+        default: null,
+        trim: true,
+      },
+
+      embeddingDimensions: {
+        type: Number,
+        default: null,
+        min: 1,
+      },
+
+      embeddingStatus: {
+        type: String,
+        enum: [
+          "NOT_STARTED",
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED",
+        ],
+        required: true,
+        default: "NOT_STARTED",
+      },
+
+      /*
+       * ----------------------------------------------
+       * INDEXING
+       * ----------------------------------------------
+       *
+       * This is intentionally separate from embedding.
+       *
+       * A chunk may have a completed embedding but
+       * not yet be indexed in Atlas Vector Search.
+       */
+
+      indexingStatus: {
+        type: String,
+        enum: [
+          "NOT_STARTED",
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED",
+        ],
+        required: true,
+        default: "NOT_STARTED",
+      },
     },
-
-    /*
-     * --------------------------------------------------
-     * HIERARCHY
-     * --------------------------------------------------
-     *
-     * null for parent chunks.
-     *
-     * Child chunks reference their parent
-     * chunk through this field.
-     */
-
-    parentChunkId: {
-      type: Schema.Types.ObjectId,
-      ref: "DocumentChunk",
-      default: null,
-    },
-
-    chunkType: {
-      type: String,
-      enum: ["parent", "child"],
-      required: true,
-    },
-
-    /*
-     * --------------------------------------------------
-     * CONTENT
-     * --------------------------------------------------
-     */
-
-    text: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    /*
-     * --------------------------------------------------
-     * SEMANTIC LOCATION
-     * --------------------------------------------------
-     *
-     * Example:
-     *
-     * [
-     *   "PROJECTS",
-     *   "NexSyncHub"
-     * ]
-     */
-
-    sectionPath: {
-      type: [String],
-      required: true,
-      default: [],
-    },
-
-    /*
-     * --------------------------------------------------
-     * PROVENANCE
-     * --------------------------------------------------
-     *
-     * These IDs point back to the canonical
-     * ProcessedDocument blocks.
-     */
-
-    sourceBlockIds: {
-      type: [String],
-      required: true,
-      default: [],
-    },
-
-    pageStart: {
-      type: Number,
-      required: true,
-      min: 1,
-    },
-
-    pageEnd: {
-      type: Number,
-      required: true,
-      min: 1,
-    },
-
-    /*
-     * --------------------------------------------------
-     * DOCUMENT CONTEXT
-     * --------------------------------------------------
-     */
-
-    documentType: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    language: {
-      type: String,
-      trim: true,
-      lowercase: true,
-      default: null,
-    },
-
-    /*
-     * --------------------------------------------------
-     * EMBEDDING STATE
-     * --------------------------------------------------
-     *
-     * Embeddings are intentionally NOT stored here yet.
-     *
-     * This field only tracks whether the chunk has
-     * successfully passed through the embedding stage.
-     */
-
-    embeddingStatus: {
-      type: String,
-      enum: ["NOT_STARTED", "PROCESSING", "COMPLETED", "FAILED"],
-      required: true,
-      default: "NOT_STARTED",
-    },
-
-    /*
-     * --------------------------------------------------
-     * INDEXING STATE
-     * --------------------------------------------------
-     *
-     * This represents the future retrieval/indexing
-     * stage and is deliberately independent from
-     * embedding generation.
-     */
-
-    indexingStatus: {
-      type: String,
-      enum: ["NOT_STARTED", "PROCESSING", "COMPLETED", "FAILED"],
-      required: true,
-      default: "NOT_STARTED",
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
 
 /*
  * --------------------------------------------------
  * INDEXES
  * --------------------------------------------------
- *
- * Common query:
- *
- * "Give me all chunks belonging to this document."
+ */
+
+/*
+ * Find all chunks belonging to a document.
  */
 
 documentChunkSchema.index({
@@ -214,9 +317,7 @@ documentChunkSchema.index({
 });
 
 /*
- * Common hierarchy query:
- *
- * "Give me all children of this parent."
+ * Find children belonging to a parent chunk.
  */
 
 documentChunkSchema.index({
@@ -224,9 +325,7 @@ documentChunkSchema.index({
 });
 
 /*
- * Useful for processing pipelines:
- *
- * "Find chunks waiting for embedding."
+ * Find chunks waiting for embedding.
  */
 
 documentChunkSchema.index({
@@ -234,18 +333,20 @@ documentChunkSchema.index({
 });
 
 /*
- * Useful for future indexing workers.
+ * Find chunks waiting for indexing.
  */
 
 documentChunkSchema.index({
   indexingStatus: 1,
 });
 
-// Delete cached model in Next.js development mode so schema updates take effect
 if (process.env.NODE_ENV !== "production") {
   delete (mongoose.models as Record<string, unknown>).DocumentChunk;
 }
 
 export const DocumentChunk: Model<IDocumentChunk> =
   mongoose.models.DocumentChunk ||
-  mongoose.model<IDocumentChunk>("DocumentChunk", documentChunkSchema);
+  mongoose.model<IDocumentChunk>(
+    "DocumentChunk",
+    documentChunkSchema
+  );
