@@ -1,11 +1,34 @@
 import fs from "fs";
 import path from "path";
+
+const envPath = path.join(process.cwd(), ".env.local");
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, "utf-8");
+  envContent.split("\n").forEach((line) => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      const key = match[1];
+      let val = match[2] || "";
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      process.env[key] = val.trim();
+    }
+  });
+}
+
 import { connectToDatabase } from "../src/lib/db/mongodb";
 import { ragService } from "../src/features/documents/services/rag/rag.service";
 import { openAIQueryRewriterProvider } from "../src/features/documents/services/rag/query/openai-query-rewriter.provider";
 
 const DOCUMENT_ID = "6a788892aba263e5f921bdcb";
-const OUTPUT_HTML_PATH = path.join(
+const OUTPUT_HTML_PATH_1 = path.join(
+  process.cwd(),
+  "docs",
+  "testing",
+  "RAG_V1.html"
+);
+const OUTPUT_HTML_PATH_2 = path.join(
   process.cwd(),
   "docs",
   "testing",
@@ -264,7 +287,7 @@ async function runQAEvaluationSuite() {
   generateHTMLReport(results);
 
   console.log("\n==========================================================");
-  console.log(`  EVALUATION COMPLETE. Report saved to:\n  ${OUTPUT_HTML_PATH}`);
+  console.log(`  EVALUATION COMPLETE. Report saved to:\n  1. ${OUTPUT_HTML_PATH_1}\n  2. ${OUTPUT_HTML_PATH_2}`);
   console.log("==========================================================");
 
   process.exit(0);
@@ -538,8 +561,10 @@ function generateHTMLReport(results: EvaluationResult[]) {
 </body>
 </html>`;
 
-  fs.mkdirSync(path.dirname(OUTPUT_HTML_PATH), { recursive: true });
-  fs.writeFileSync(OUTPUT_HTML_PATH, html, "utf-8");
+  fs.mkdirSync(path.dirname(OUTPUT_HTML_PATH_1), { recursive: true });
+  fs.writeFileSync(OUTPUT_HTML_PATH_1, html, "utf-8");
+  fs.mkdirSync(path.dirname(OUTPUT_HTML_PATH_2), { recursive: true });
+  fs.writeFileSync(OUTPUT_HTML_PATH_2, html, "utf-8");
 }
 
 function escapeHtml(str: string): string {

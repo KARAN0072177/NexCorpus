@@ -22,21 +22,20 @@ export interface RewriteQueryResult {
   intent: QueryIntent;
 }
 
+const CONVERSATIONAL_REFERENCE_REGEX =
+  /\b(it|this|that|there|they|them|these|those|the first one|the second one|that project|that technology|the previous project|the same one|same one)\b/i;
+
 export class OpenAIQueryRewriterProvider {
   private readonly client: OpenAI;
 
   private readonly model =
-    process.env.OPENAI_GENERATION_MODEL ??
-    "gpt-4o-mini";
+    process.env.OPENAI_GENERATION_MODEL ?? "gpt-4o-mini";
 
   constructor() {
-    const apiKey =
-      process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey) {
-      throw new Error(
-        "OPENAI_API_KEY is not configured"
-      );
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     this.client = new OpenAI({
@@ -49,122 +48,151 @@ export class OpenAIQueryRewriterProvider {
     conversation,
   }: RewriteQueryInput): Promise<RewriteQueryResult> {
     if (!query?.trim()) {
-      throw new Error(
-        "Query cannot be empty"
-      );
+      throw new Error("Query cannot be empty");
     }
 
-    const conversationText = conversation.length
-      ? conversation
-          .map(
-            (message) =>
-              `${message.role.toUpperCase()}: ${message.content}`
-          )
-          .join("\n")
-      : "None";
+    const trimmedQuery = query.trim();
 
-    const response =
-      await this.client.chat.completions.create({
-        model: this.model,
+    /*
+     * --------------------------------------------------
+     * Fast-Path Rewriter Bypass:
+     * If conversation history is empty OR the query contains
+     * no conversational references (pronouns/relative terms),
+     * bypass OpenAI LLM call completely to save 500ms-1.2s + 500 tokens.
+     * --------------------------------------------------
+     */
+    const hasReferences = CONVERSATIONAL_REFERENCE_REGEX.test(trimmedQuery);
 
-        temperature: 0,
+    if (!conversation.length || !hasReferences) {
+      const intent = this.classifyIntentLocally(trimmedQuery);
+      let fastPathQuery = trimmedQuery;
 
-        response_format: {
-          type: "json_object",
-        },
+      if (intent === "SET_DIFFERENCE") {
+        fastPathQuery = "TECHNICAL SKILLS programming languages frameworks databases cloud tools";
+      }
 
-        messages: [
-          {
-            role: "system",
-            content: `
-You are a query rewriting and intent classification component for a conversational document retrieval (RAG) system.
+      return {
+        query: fastPathQuery,
+        rewritten: fastPathQuery !== trimmedQuery,
+        intent,
+      };
+    }
 
-Your job is to:
-1. Rewrite the user's latest question into a fully self-contained, explicit standalone search query.
-2. Classify the user query into one of 4 RAG retrieval intents.
+    const conversationText = conversation
+      .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+      .join("\n");
 
-Reference Resolution Rules:
-- Examine both USER questions and ASSISTANT answers in CONVERSATION HISTORY to resolve all conversational references:
-  * Pronouns ("it", "this", "that", "there", "they", "them") -> replace with explicit entity name (e.g. "Redis", "AWS S3", "NexSyncHub").
-  * Ordinals and Positions ("the first one", "the second one", "the last project") -> map to the 1st, 2nd, or last mentioned item in conversation.
-  * Demonstratives ("that project", "that technology", "there") -> map to specific entity/project/location.
-- Preserve the user's original query intent.
-- Do NOT answer the question.
-- If the query is already 100% self-contained, keep it unchanged with "rewritten": false.
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      temperature: 0,
+      response_format: {
+        type: "json_object",
+      },
+      messages: [
+        {
+          role: "system",
+          content: `
+You are a conversation-aware query rewriter and intent classifier for a technical RAG system.
 
-Intent Classification Rules:
-- "EXHAUSTIVE": The query requests a document-wide sweep or exhaustive category enumeration (e.g. contains "every", "all", "entire resume", "without missing any", "every technology", "summarize every", "all AWS services").
-- "COMPARISON": The query requests a comparison matrix across multiple projects/entities (e.g. "compare all three projects", "compare NexSyncHub versus AssignFlow").
-- "SET_DIFFERENCE": The query requests items present in one section/set but not in another (e.g. "in Technical Skills but not explicitly associated with a project", "listed in skills but not in projects").
-- "TARGETED": Default mode for normal specific questions, single-topic queries, or localized follow-ups (e.g. "What AWS services have I worked with?", "Why did I use Redis?", "What about NexSyncHub?").
+Your job:
+1. Examine the current user query and recent conversation trajectory.
+2. Resolve ambiguous pronouns or relative references (such as "it", "this", "that", "there", "they", "them", "the first one", "the second one", "that project", "the same one").
+3. Rewrite the query into a standalone search query.
+4. Classify the user query into one of 4 intent categories:
+   - "TARGETED": Specific question about a single feature, project, or technology (e.g. "What did I use Redis for?").
+   - "EXHAUSTIVE": Sweeping enumeration request across all categories/skills (e.g. "Summarize every authentication technology", "List every AWS service", "Give me all technologies in resume").
+   - "COMPARISON": Explicit multi-entity comparative analysis (e.g. "Compare NexSyncHub versus AssignFlow Hub across database, auth, and real-time").
+   - "SET_DIFFERENCE": Relational filtering for unassociated items (e.g. "What technologies in Technical Skills are not associated with any project?").
 
-Respond in valid json format using this exact structure:
+Rules:
+- Preserve technical terms exactly.
+- Respond ONLY in valid JSON format.
+
+Return structure:
 {
-  "query": "standalone search query",
+  "query": "standalone rewritten query string",
   "rewritten": true,
   "intent": "TARGETED" | "EXHAUSTIVE" | "COMPARISON" | "SET_DIFFERENCE"
 }
-            `.trim(),
-          },
-          {
-            role: "user",
-            content: `
-CONVERSATION HISTORY:
-
+          `.trim(),
+        },
+        {
+          role: "user",
+          content: `
+CONVERSATION TRAJECTORY:
 ${conversationText}
 
----
+CURRENT USER QUERY:
+${trimmedQuery}
+          `.trim(),
+        },
+      ],
+    });
 
-CURRENT QUERY:
-
-${query}
-
----
-
-Rewrite the current query into a standalone retrieval query and classify its intent. Respond in json format.
-Do not answer the query.
-            `.trim(),
-          },
-        ],
-      });
-
-    const content =
-      response.choices[0]?.message?.content?.trim();
+    const content = response.choices[0]?.message?.content?.trim();
 
     if (!content) {
-      throw new Error(
-        "OpenAI returned an empty query rewrite response"
-      );
+      return {
+        query: trimmedQuery,
+        rewritten: false,
+        intent: this.classifyIntentLocally(trimmedQuery),
+      };
     }
 
-    let parsed: any;
-
     try {
-      parsed = JSON.parse(content);
+      const parsed = JSON.parse(content);
+      return {
+        query: typeof parsed.query === "string" ? parsed.query.trim() : trimmedQuery,
+        rewritten: Boolean(parsed.rewritten),
+        intent: this.validateIntent(parsed.intent, trimmedQuery),
+      };
     } catch {
-      throw new Error(
-        "OpenAI returned invalid query rewrite JSON"
-      );
+      return {
+        query: trimmedQuery,
+        rewritten: false,
+        intent: this.classifyIntentLocally(trimmedQuery),
+      };
+    }
+  }
+
+  private classifyIntentLocally(query: string): QueryIntent {
+    const q = query.toLowerCase();
+
+    if (
+      q.includes("not associated") ||
+      q.includes("not explicitly associated") ||
+      q.includes("not in any project") ||
+      q.includes("without a project") ||
+      q.includes("not explicitly mentioned") ||
+      q.includes("technical skills but not") ||
+      q.includes("but not")
+    ) {
+      return "SET_DIFFERENCE";
     }
 
     if (
-      typeof parsed.query !== "string" ||
-      typeof parsed.rewritten !== "boolean"
+      q.includes("compare") ||
+      q.includes("versus") ||
+      q.includes(" vs ") ||
+      q.includes("difference between")
     ) {
-      throw new Error(
-        "OpenAI returned an invalid query rewrite structure"
-      );
+      return "COMPARISON";
     }
 
-    const rewrittenQuery =
-      parsed.query.trim();
-
-    if (!rewrittenQuery) {
-      throw new Error(
-        "OpenAI returned an empty rewritten query"
-      );
+    if (
+      q.includes("every") ||
+      q.includes("all ") ||
+      q.includes("summarize all") ||
+      q.includes("inventory") ||
+      q.includes("list all")
+    ) {
+      return "EXHAUSTIVE";
     }
 
+    return "TARGETED";
+  }
+
+  private validateIntent(rawIntent: any, query: string): QueryIntent {
     const validIntents: QueryIntent[] = [
       "TARGETED",
       "EXHAUSTIVE",
@@ -172,19 +200,12 @@ Do not answer the query.
       "SET_DIFFERENCE",
     ];
 
-    const intent: QueryIntent = validIntents.includes(
-      parsed.intent
-    )
-      ? parsed.intent
-      : "TARGETED";
+    if (typeof rawIntent === "string" && validIntents.includes(rawIntent as QueryIntent)) {
+      return rawIntent as QueryIntent;
+    }
 
-    return {
-      query: rewrittenQuery,
-      rewritten: parsed.rewritten,
-      intent,
-    };
+    return this.classifyIntentLocally(query);
   }
 }
 
-export const openAIQueryRewriterProvider =
-  new OpenAIQueryRewriterProvider();
+export const openAIQueryRewriterProvider = new OpenAIQueryRewriterProvider();

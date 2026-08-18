@@ -3,6 +3,7 @@ import { openAIGenerationProvider } from "./generation/openai-generation.provide
 import { openAIQueryRewriterProvider } from "./query/openai-query-rewriter.provider";
 import { documentRetrievalService } from "../retrieval/document-retrieval.service";
 import type { HybridSearchResult } from "../retrieval/hybrid/mongodb-hybrid-search.service";
+import { ragCacheService } from "./cache/rag-cache.service";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -42,7 +43,18 @@ export class RagService {
 
     const currentQuery = query.trim();
 
-    // 1. Rewrite the query and classify intent
+    /*
+     * --------------------------------------------------
+     * Step 0: In-Memory / TTL Cache Lookup (<10ms Response)
+     * --------------------------------------------------
+     */
+    const cachedResult = ragCacheService.get(documentId, currentQuery, conversation);
+    if (cachedResult) {
+      console.log(`[RagService] Cache HIT for document ${documentId}`);
+      return cachedResult;
+    }
+
+    // 1. Rewrite the query and classify intent (Fast-Path Regex Bypass applied internally)
     const rewrittenQueryResult =
       await openAIQueryRewriterProvider.rewriteQuery({
         query: currentQuery,
@@ -56,7 +68,6 @@ export class RagService {
     let results: HybridSearchResult[] = [];
 
     if (intent === "EXHAUSTIVE") {
-      // Multi-pass evidence collection for document-wide category sweeps
       const primaryRetrieval =
         await documentRetrievalService.retrieve({
           documentId,
@@ -72,10 +83,7 @@ export class RagService {
           limit: 10,
         });
 
-      const resultMap = new Map<
-        string,
-        HybridSearchResult
-      >();
+      const resultMap = new Map<string, HybridSearchResult>();
 
       [
         ...primaryRetrieval.results,
@@ -89,7 +97,6 @@ export class RagService {
       intent === "COMPARISON" ||
       intent === "SET_DIFFERENCE"
     ) {
-      // Multi-Pass Grouped Retrieval for relational set-difference and multi-entity matrices
       const primaryPass =
         await documentRetrievalService.retrieve({
           documentId,
@@ -105,10 +112,7 @@ export class RagService {
           limit: 10,
         });
 
-      const resultMap = new Map<
-        string,
-        HybridSearchResult
-      >();
+      const resultMap = new Map<string, HybridSearchResult>();
 
       [
         ...primaryPass.results,
@@ -119,7 +123,6 @@ export class RagService {
 
       results = Array.from(resultMap.values());
     } else {
-      // Standard TARGETED mode (limit = 5) for single-topic precision
       const primaryRetrieval =
         await documentRetrievalService.retrieve({
           documentId,
@@ -131,69 +134,62 @@ export class RagService {
     }
 
     if (!results.length) {
-      return {
-        answer:
-          "I couldn't find relevant information in the document.",
+      const emptyResult: AskDocumentResult = {
+        answer: "I couldn't find relevant information in the document.",
         sources: [],
       };
+      ragCacheService.set(documentId, currentQuery, conversation, emptyResult);
+      return emptyResult;
     }
 
-    // 3. Convert retrieval results into LLM context
-    const context =
-      contextAssemblerService.assemble(results);
+    // 3. Convert retrieval results into LLM context with Deduplication & Context Budgeting
+    const assembledContext = contextAssemblerService.assembleContext(results);
 
-    // 4. Generate grounded answer using the explicit standalone query
+    // 4. Generate grounded answer
     const generatedAnswer =
       await openAIGenerationProvider.generateAnswer({
         query: targetQuery,
-        context: context.text,
+        context: assembledContext.formattedContext,
       });
 
     // 5. Map OpenAI SOURCE numbers back to actual retrieved chunks
-    const sources =
-      generatedAnswer.citations
-        .map((sourceNumber) => {
-          const index = sourceNumber - 1;
+    const sourceMap = new Map<number, HybridSearchResult>();
+    assembledContext.chunks.forEach((chunk, index) => {
+      sourceMap.set(index + 1, chunk);
+    });
 
-          return results[index];
-        })
-        .filter(
-          (
-            result
-          ): result is HybridSearchResult =>
-            Boolean(result)
-        );
+    const sources = generatedAnswer.citations
+      .map((sourceNumber) => {
+        const resultChunk = sourceMap.get(sourceNumber);
+        if (!resultChunk) return null;
 
-    // 6. Remove duplicate sources
-    const uniqueSources =
-      Array.from(
-        new Map(
-          sources.map((source) => [
-            source.id,
-            source,
-          ])
-        ).values()
+        return {
+          id: resultChunk.id,
+          sectionPath: resultChunk.sectionPath,
+          pageStart: resultChunk.pageStart,
+          pageEnd: resultChunk.pageEnd,
+          score: resultChunk.score,
+        };
+      })
+      .filter(
+        (source): source is AskDocumentResult["sources"][number] =>
+          source !== null
       );
 
-    // 7. Return grounded answer + cited source metadata
-    return {
-      answer: generatedAnswer.answer,
+    const uniqueSources = Array.from(
+      new Map(sources.map((source) => [source.id, source])).values()
+    );
 
-      sources: uniqueSources.map(
-        (result: HybridSearchResult) => ({
-          id: result.id,
-          sectionPath:
-            result.sectionPath,
-          pageStart:
-            result.pageStart,
-          pageEnd:
-            result.pageEnd,
-          score: result.score,
-        })
-      ),
+    const finalResult: AskDocumentResult = {
+      answer: generatedAnswer.answer,
+      sources: uniqueSources,
     };
+
+    // Store in Cache
+    ragCacheService.set(documentId, currentQuery, conversation, finalResult);
+
+    return finalResult;
   }
 }
 
-export const ragService =
-  new RagService();
+export const ragService = new RagService();
