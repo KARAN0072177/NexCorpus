@@ -254,6 +254,71 @@ export default function DocumentChatWorkspace({
   }
 
   function renderMarkdownAnswer(content: string) {
+    const trimmed = content.trim();
+
+    // 1. JSON Card Parser for structured JSON answers
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+
+        if (typeof parsed === "object" && parsed !== null) {
+          const rawEntries = Array.isArray(parsed)
+            ? parsed.map((item, idx) => [`Item ${idx + 1}`, item] as [string, any])
+            : Object.entries(parsed);
+
+          return (
+            <div className="my-3 space-y-4">
+              {rawEntries.map((entry: [string, any], idx: number) => {
+                const [key, val] = entry;
+                const title = val?.service || key;
+                const usages = Array.isArray(val)
+                  ? val
+                  : Array.isArray(val?.usage)
+                  ? val.usage
+                  : typeof val === "object"
+                  ? [val]
+                  : [{ description: String(val) }];
+
+                return (
+                  <div
+                    key={idx}
+                    className="overflow-hidden rounded-xl border border-sky-500/20 bg-slate-900/80 p-4 shadow-lg transition hover:border-sky-500/40"
+                  >
+                    <div className="flex items-center gap-2 border-b border-white/10 pb-2.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-500/20 text-xs font-bold text-sky-400">
+                        {idx + 1}
+                      </span>
+                      <h4 className="text-sm font-bold text-sky-300">
+                        {title.replace(/\*\*/g, "")}
+                      </h4>
+                    </div>
+
+                    <div className="mt-3 space-y-2.5">
+                      {usages.map((uItem: any, uIdx: number) => (
+                        <div key={uIdx} className="flex flex-col sm:flex-row sm:items-start gap-2 text-xs">
+                          {uItem.project && (
+                            <span className="inline-flex shrink-0 items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-300">
+                              {uItem.project}
+                            </span>
+                          )}
+                          <p className="text-slate-200 leading-relaxed">
+                            {uItem.description || uItem.usage || JSON.stringify(uItem)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
+      } catch {
+        // Fall back to Markdown parsing if JSON.parse fails
+      }
+    }
+
+    // 2. Markdown Table Parser
     if (content.includes("|") && content.includes("-")) {
       const lines = content.split("\n");
       const tableLines = lines.filter((line) => line.trim().startsWith("|"));
@@ -307,11 +372,74 @@ export default function DocumentChatWorkspace({
       }
     }
 
+    // 3. Human-Readable Structured Markdown Parser (Headers, Lists, Project Badges)
+    const lines = content.split("\n");
+
     return (
-      <div className="space-y-3 whitespace-pre-wrap leading-relaxed text-slate-200">
-        {content}
+      <div className="space-y-2.5 text-sm leading-relaxed text-slate-200">
+        {lines.map((line, lIdx) => {
+          const trimmedLine = line.trim();
+
+          if (!trimmedLine) return <div key={lIdx} className="h-1" />;
+
+          // Headings (### Title or **Title**)
+          if (trimmedLine.startsWith("###") || trimmedLine.startsWith("##")) {
+            const headingText = trimmedLine.replace(/^#+\s*/, "").replace(/\*\*/g, "");
+            return (
+              <h3 key={lIdx} className="mt-4 mb-2 text-base font-bold text-sky-400">
+                {headingText}
+              </h3>
+            );
+          }
+
+          // Bullet List Items (- or *)
+          if (trimmedLine.startsWith("-") || trimmedLine.startsWith("*")) {
+            const listText = trimmedLine.replace(/^[-*]\s*/, "");
+            
+            // Check for Project Badge pattern e.g. **[AssignFlow Hub]**
+            const projectMatch = listText.match(/\*\*\[(.*?)\]\*\*\s*(.*)/);
+
+            if (projectMatch) {
+              const [, projName, descText] = projectMatch;
+              return (
+                <div key={lIdx} className="flex items-start gap-2.5 my-1.5 pl-2">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 shadow-sm shadow-sky-400" />
+                  <div>
+                    <span className="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-300 mr-2">
+                      {projName}
+                    </span>
+                    <span>{descText}</span>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={lIdx} className="flex items-start gap-2.5 my-1 pl-2">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 shadow-sm shadow-sky-400" />
+                <span>{renderBoldInlineText(listText)}</span>
+              </div>
+            );
+          }
+
+          return <p key={lIdx}>{renderBoldInlineText(trimmedLine)}</p>;
+        })}
       </div>
     );
+  }
+
+  function renderBoldInlineText(text: string) {
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, pIdx) => {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={pIdx} className="font-semibold text-white">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
   }
 
   const isFullyIndexed = documentInfo?.indexingStatus === "COMPLETED";
