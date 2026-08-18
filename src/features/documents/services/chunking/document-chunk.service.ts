@@ -249,14 +249,13 @@ export class DocumentChunkService {
      *
      * A section only creates child chunks directly from
      * its own source blocks if it has NO sub-sections.
-     *
-     * If a section HAS sub-sections, its own source blocks
-     * serve as structural context for the parent chunk,
-     * while the sub-sections become the child chunks.
      * --------------------------------------------------
      */
 
-    if (section.children.length === 0 && resolvedBlocks.length > 0) {
+    if (
+      section.children.length === 0 &&
+      resolvedBlocks.length > 0
+    ) {
       const childGroups =
         this.buildChildGroups(
           resolvedBlocks
@@ -359,13 +358,6 @@ export class DocumentChunkService {
       | mongoose.Types.ObjectId
       | null;
   }) {
-    /*
-     * Parent text is contextual text.
-     *
-     * We use canonical source blocks and do not
-     * ask the AI to generate a summary.
-     */
-
     const text =
       this.buildText(blocks);
 
@@ -486,19 +478,37 @@ export class DocumentChunkService {
     let currentWords = 0;
 
     for (const block of blocks) {
+      const blockText = block.text.trim();
+
       const blockWords =
         this.countWordsInText(
-          block.text
+          blockText
         );
 
       /*
-       * If a single block itself exceeds the
-       * maximum, keep it intact for now.
-       *
-       * We don't split individual canonical
-       * blocks because doing so could destroy
-       * their source-level semantic integrity.
+       * Check if this block represents a distinct sub-category label
+       * (e.g. "Cloud & DevOps:", "Languages:", "Frontend:")
        */
+
+      const isSubCategoryHeader =
+        /^[A-Z][A-Za-z0-9\s&/-]{1,40}:\s*/.test(
+          blockText
+        );
+
+      /*
+       * Start a new group when encountering a sub-category header
+       * to preserve granular semantic search focus.
+       */
+
+      if (
+        isSubCategoryHeader &&
+        currentGroup.length > 0
+      ) {
+        groups.push(currentGroup);
+
+        currentGroup = [];
+        currentWords = 0;
+      }
 
       if (
         blockWords > MAX_CHILD_WORDS
@@ -506,9 +516,7 @@ export class DocumentChunkService {
         if (
           currentGroup.length > 0
         ) {
-          groups.push(
-            currentGroup
-          );
+          groups.push(currentGroup);
 
           currentGroup = [];
           currentWords = 0;
@@ -519,19 +527,12 @@ export class DocumentChunkService {
         continue;
       }
 
-      /*
-       * Start a new group when adding the
-       * next block would exceed our target.
-       */
-
       if (
         currentGroup.length > 0 &&
         currentWords + blockWords >
           TARGET_CHILD_WORDS
       ) {
-        groups.push(
-          currentGroup
-        );
+        groups.push(currentGroup);
 
         currentGroup = [];
         currentWords = 0;
@@ -542,12 +543,8 @@ export class DocumentChunkService {
       currentWords += blockWords;
     }
 
-    if (
-      currentGroup.length > 0
-    ) {
-      groups.push(
-        currentGroup
-      );
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
     }
 
     return groups;

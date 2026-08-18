@@ -3,9 +3,9 @@ import {
 } from "../embedding/providers/openai.embedding.provider";
 
 import {
-  mongoDBVectorSearchService,
-  type VectorSearchResult,
-} from "./vector/mongodb-vector-search.service";
+  mongoDBHybridSearchService,
+  type HybridSearchResult,
+} from "./hybrid/mongodb-hybrid-search.service";
 
 /*
  * --------------------------------------------------
@@ -20,13 +20,15 @@ export interface DocumentRetrievalOptions {
 
   limit?: number;
 
+  candidateLimit?: number;
+
   numCandidates?: number;
 }
 
 export interface DocumentRetrievalResult {
   query: string;
 
-  results: VectorSearchResult[];
+  results: HybridSearchResult[];
 }
 
 /*
@@ -40,7 +42,8 @@ export class DocumentRetrievalService {
     documentId,
     query,
     limit = 5,
-    numCandidates,
+    candidateLimit = 20,
+    numCandidates = 100,
   }: DocumentRetrievalOptions): Promise<DocumentRetrievalResult> {
     /*
      * ------------------------------------------------
@@ -61,16 +64,6 @@ export class DocumentRetrievalService {
      * ------------------------------------------------
      * Generate query embedding
      * ------------------------------------------------
-     *
-     * IMPORTANT:
-     *
-     * We use the SAME embedding provider and model
-     * that was used when generating document chunk
-     * embeddings.
-     *
-     * text-embedding-3-small
-     * 1536 dimensions
-     * ------------------------------------------------
      */
 
     const queryVector =
@@ -80,17 +73,21 @@ export class DocumentRetrievalService {
 
     /*
      * ------------------------------------------------
-     * Search MongoDB Atlas Vector Search
+     * Hybrid Retrieval
      * ------------------------------------------------
      */
 
     const results =
-      await mongoDBVectorSearchService.search({
+      await mongoDBHybridSearchService.search({
         documentId,
+
+        query: normalizedQuery,
 
         queryVector,
 
         limit,
+
+        candidateLimit,
 
         numCandidates,
       });
