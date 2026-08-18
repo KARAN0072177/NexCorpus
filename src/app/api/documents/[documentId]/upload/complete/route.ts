@@ -1,19 +1,15 @@
 import { NextResponse } from "next/server";
-
 import { requireApiUser } from "@/lib/auth/require-api-user";
-
 import {
   findDocumentById,
   markDocumentUploaded,
 } from "@/features/documents/services/document.service";
-
-import {
-  createDocumentStorageKey,
-} from "@/features/documents/services/storage/storage-key";
-
-import {
-  getObjectMetadata,
-} from "@/features/documents/services/storage/s3.service";
+import { createDocumentStorageKey } from "@/features/documents/services/storage/storage-key";
+import { getObjectMetadata } from "@/features/documents/services/storage/s3.service";
+import { processDocument } from "@/features/documents/services/processing/processing.service";
+import { documentAnalysisService } from "@/features/documents/services/analysis/document-analysis.service";
+import { documentChunkService } from "@/features/documents/services/chunking/document-chunk.service";
+import { documentEmbeddingService } from "@/features/documents/services/embedding/embedding.service";
 
 interface RouteContext {
   params: Promise<{
@@ -98,6 +94,35 @@ export async function POST(
         },
         { status: 500 }
       );
+    }
+
+    /*
+     * --------------------------------------------------
+     * Automatically Trigger End-to-End Ingestion Pipeline:
+     * 1. Extract PDF text & parse structural blocks
+     * 2. Perform OpenAI semantic analysis (DocumentAIAnalysis)
+     * 3. Perform sub-category granular chunking
+     * 4. Generate OpenAI embeddings & store in MongoDB Vector Search
+     * --------------------------------------------------
+     */
+    try {
+      console.log(`[Upload Complete] Auto-processing document ${documentId}...`);
+      await processDocument({
+        documentId: updatedDocument._id.toString(),
+        ownerId: user._id.toString(),
+      });
+
+      console.log(`[Upload Complete] Auto-analyzing document ${documentId}...`);
+      await documentAnalysisService.analyzeDocument(updatedDocument._id.toString());
+
+      console.log(`[Upload Complete] Auto-chunking document ${documentId}...`);
+      await documentChunkService.createChunks(updatedDocument._id.toString());
+
+      console.log(`[Upload Complete] Auto-embedding document ${documentId}...`);
+      await documentEmbeddingService.embedDocument(updatedDocument._id.toString());
+      console.log(`[Upload Complete] Document ${documentId} is 100% indexed and ready!`);
+    } catch (ingestionError) {
+      console.error(`[Upload Complete] Background ingestion pipeline failed for ${documentId}:`, ingestionError);
     }
 
     return NextResponse.json({

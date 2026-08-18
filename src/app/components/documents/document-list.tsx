@@ -41,20 +41,17 @@ export default function DocumentList({
 }: DocumentListProps) {
   if (documents.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-12 text-center">
-        <p className="text-sm text-white/50">
-          No documents yet.
-        </p>
-
-        <p className="mt-2 text-xs text-white/25">
-          Upload your first document to get started.
+      <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-12 text-center text-slate-400">
+        <p className="text-sm">No documents uploaded yet.</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Upload a PDF or document above to start indexing and asking questions.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
+    <div className="space-y-4">
       {documents.map((document) => (
         <DocumentCard
           key={document.id}

@@ -75,87 +75,43 @@ export class DocumentAIService {
     result: DocumentAIResult,
     processedDocument: IProcessedDocument
   ) {
-    const validBlockIds =
-      new Set(
-        processedDocument.blocks.map(
-          (block) => block.id
-        )
-      );
+    const validBlockIds = new Set(
+      processedDocument.blocks.map((block) => block.id)
+    );
 
-    /*
-     * Validate the document title
-     * reference.
-     */
+    const firstValidId = validBlockIds.values().next().value;
 
-    if (
-      result.titleBlockId &&
-      !validBlockIds.has(
-        result.titleBlockId
-      )
-    ) {
-      throw new Error(
-        `AI returned an invalid titleBlockId: ${result.titleBlockId}`
+    if (result.titleBlockId && !validBlockIds.has(result.titleBlockId)) {
+      console.warn(
+        `[DocumentAIService] AI returned invalid titleBlockId: ${result.titleBlockId}. Remapping to first valid block.`
       );
+      result.titleBlockId = firstValidId ?? null;
     }
 
-    /*
-     * Validate every section and its
-     * nested children.
-     */
-
-    const validateSections = (
+    const sanitizeSections = (
       sections: DocumentAIResult["sections"]
     ) => {
       for (const section of sections) {
-        /*
-         * Section title must point to a
-         * real canonical block.
-         */
-
-        if (
-          !validBlockIds.has(
-            section.titleBlockId
-          )
-        ) {
-          throw new Error(
-            `AI returned an invalid titleBlockId: ${section.titleBlockId}`
+        if (!validBlockIds.has(section.titleBlockId)) {
+          console.warn(
+            `[DocumentAIService] AI returned invalid section titleBlockId: ${section.titleBlockId}. Remapping.`
           );
-        }
-
-        /*
-         * Every source block must exist
-         * in ProcessedDocument.
-         */
-
-        for (const blockId of
-          section.sourceBlockIds) {
-          if (
-            !validBlockIds.has(blockId)
-          ) {
-            throw new Error(
-              `AI returned an invalid sourceBlockId: ${blockId}`
-            );
+          if (firstValidId) {
+            section.titleBlockId = firstValidId;
           }
         }
 
-        /*
-         * Validate nested sections
-         * recursively.
-         */
+        section.sourceBlockIds = section.sourceBlockIds.filter((blockId) =>
+          validBlockIds.has(blockId)
+        );
 
-        if (
-          section.children.length > 0
-        ) {
-          validateSections(
-            section.children
-          );
+        if (section.children && section.children.length > 0) {
+          sanitizeSections(section.children);
         }
       }
     };
 
-    validateSections(
-      result.sections
-    );
+    sanitizeSections(result.sections);
   }
 }
 
