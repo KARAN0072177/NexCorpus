@@ -89,6 +89,9 @@ export default function DocumentChatWorkspace({
 
         if (found) {
           setDocumentInfo(found);
+          if (found.indexingStatus !== "COMPLETED") {
+            handleTriggerIndexing();
+          }
         }
       }
     } catch (e) {
