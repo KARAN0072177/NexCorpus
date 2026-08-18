@@ -1,3 +1,5 @@
+// src/app/api/documents/[documentId]/ask/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { connectToDatabase } from "@/lib/db/mongodb";
@@ -8,6 +10,11 @@ interface RouteContext {
   params: Promise<{
     documentId: string;
   }>;
+}
+
+interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export async function POST(
@@ -23,7 +30,8 @@ export async function POST(
 
     await connectToDatabase();
 
-    const { user, response } = await requireApiUser();
+    const { user, response } =
+      await requireApiUser();
 
     if (response) {
       return response;
@@ -35,11 +43,16 @@ export async function POST(
      * --------------------------------------------------
      */
 
-    const { documentId } = await context.params;
+    const { documentId } =
+      await context.params;
 
-    const body = await request.json().catch(() => ({}));
+    const body =
+      await request.json().catch(() => ({}));
 
-    const { query } = body;
+    const {
+      query,
+      conversation,
+    } = body;
 
     if (!documentId) {
       return NextResponse.json(
@@ -67,22 +80,83 @@ export async function POST(
 
     /*
      * --------------------------------------------------
+     * Validate Conversation
+     * --------------------------------------------------
+     */
+
+    if (
+      conversation !== undefined &&
+      !Array.isArray(conversation)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Conversation must be an array",
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedConversation: ConversationMessage[] =
+      Array.isArray(conversation)
+        ? conversation.map(
+            (message) => ({
+              role: message?.role,
+              content:
+                typeof message?.content ===
+                "string"
+                  ? message.content.trim()
+                  : "",
+            })
+          )
+        : [];
+
+    const invalidMessage =
+      normalizedConversation.some(
+        (message) =>
+          !["user", "assistant"].includes(
+            message.role
+          ) ||
+          !message.content
+      );
+
+    if (invalidMessage) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Each conversation message must contain a valid role and content",
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * --------------------------------------------------
      * Execute RAG Question Answering
      * --------------------------------------------------
      */
 
-    const result = await ragService.askDocument({
-      documentId,
-      query: query.trim(),
-    });
+    const result =
+      await ragService.askDocument({
+        documentId,
+        query: query.trim(),
+        conversation:
+          normalizedConversation,
+      });
 
     return NextResponse.json({
       success: true,
-      message: "Question answered successfully",
+      message:
+        "Question answered successfully",
       data: result,
     });
   } catch (error) {
-    console.error("Document question error:", error);
+    console.error(
+      "Document question error:",
+      error
+    );
 
     return NextResponse.json(
       {

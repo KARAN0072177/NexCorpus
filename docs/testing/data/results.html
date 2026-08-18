@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexCorpus RAG Quality & Completeness Benchmark</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --pass-color: #10b981;
+      --fail-color: #ef4444;
+      --accent-color: #3b82f6;
+      --highlight-color: #8b5cf6;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      margin: 0;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1050px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 30px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 20px;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 28px;
+      color: #ffffff;
+    }
+    .timestamp {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .dashboard {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin-bottom: 40px;
+    }
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+    }
+    .metric-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .metric-value.pass { color: var(--pass-color); }
+    .metric-value.fail { color: var(--fail-color); }
+    .metric-value.info { color: var(--accent-color); }
+    .metric-value.purple { color: var(--highlight-color); }
+
+    .section-title {
+      font-size: 22px;
+      margin: 40px 0 20px 0;
+      color: #38bdf8;
+      border-bottom: 2px solid #38bdf8;
+      padding-bottom: 8px;
+    }
+
+    .test-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 25px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+    .test-card.passed { border-left: 5px solid var(--pass-color); }
+    .test-card.failed { border-left: 5px solid var(--fail-color); }
+
+    .test-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-bottom: 12px;
+    }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .badge.passed { background: rgba(16, 185, 129, 0.2); color: var(--pass-color); }
+    .badge.failed { background: rgba(239, 68, 68, 0.2); color: var(--fail-color); }
+
+    .test-id { font-weight: bold; color: var(--accent-color); }
+    .test-category { font-weight: 600; font-size: 15px; flex-grow: 1; }
+    .test-completeness { font-size: 12px; font-weight: bold; color: var(--highlight-color); background: rgba(139, 92, 246, 0.15); padding: 2px 8px; border-radius: 4px; }
+    .test-latency { font-size: 13px; color: var(--text-muted); background: #0f172a; padding: 2px 8px; border-radius: 4px; }
+
+    .query-section, .expected-section, .answer-section, .sources-section, .notes-section {
+      margin-bottom: 16px;
+    }
+    .rewritten-query {
+      margin-top: 6px;
+      font-size: 14px;
+      color: #38bdf8;
+    }
+    .answer-box {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 14px;
+      margin-top: 6px;
+      white-space: pre-wrap;
+      font-size: 15px;
+    }
+    .source-list {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0 0;
+    }
+    .source-list li {
+      background: #0f172a;
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      display: flex;
+      gap: 12px;
+      font-size: 13px;
+      align-items: center;
+    }
+    .source-num { background: var(--accent-color); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+    .source-path { flex-grow: 1; color: #e2e8f0; }
+    .source-page { color: var(--text-muted); }
+    .source-score { color: #f59e0b; font-family: monospace; }
+    .no-sources { color: var(--text-muted); font-style: italic; font-size: 14px; margin-top: 6px; }
+    .notes-section { font-size: 13px; color: var(--text-muted); border-top: 1px dashed var(--border-color); padding-top: 10px; margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NexCorpus RAG Quality & Answer Completeness Benchmark</h1>
+      <div class="timestamp">Target Document: <code>6a788892aba263e5f921bdcb</code> | Evaluated at: 8/18/2026, 7:01:07 PM</div>
+    </header>
+
+    <div class="dashboard">
+      <div class="metric-card">
+        <div class="metric-label">Total Test Cases</div>
+        <div class="metric-value info">11</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Pass Rate</div>
+        <div class="metric-value pass">90.9%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg Completeness (Round 2)</div>
+        <div class="metric-value purple">85.4%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg Latency</div>
+        <div class="metric-value info">6334 ms</div>
+      </div>
+    </div>
+
+    <div class="section-title">Round 2: Answer Completeness Evaluation</div>
+    
+    <div class="test-card failed">
+      <div class="test-header">
+        <span class="badge failed">FAILED</span>
+        <span class="test-id">COMP-1</span>
+        <span class="test-category">Exhaustive Security & Auth Enumeration</span>
+        <span class="test-completeness">Recall: 57%</span>
+        <span class="test-latency">5293 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Summarize every authentication/security technology mentioned in my resume."
+        
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Exhaustive list of all auth/security tech: JWT, OAuth 2.0, NextAuth.js, Cloudflare Turnstile, OTP-based password recovery, Email Verification, Redis rate limiting, RBAC, Super Admin dashboards.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The authentication and security technologies mentioned in the resume are: JWT, OAuth 2.0, NextAuth.js, and Cloudflare Turnstile.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (4):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0325</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">PROJECTS &amp;gt; Arts of Imagination Ever (AOIE) | Artist Showcase and Creative Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0306</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 4</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Completeness check failed: found 4/7 required key entities (57% recall).
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">COMP-2</span>
+        <span class="test-category">Exhaustive AWS Mapping</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">6080 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "List every AWS service and where I used each one."
+        
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Exhaustively maps AWS S3 (storage/tech stack), AWS Rekognition (NexSyncHub media moderation), and general AWS services (AssignFlow &amp; Additional Info).
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The following AWS services are mentioned in the document context:
+
+1. **AWS** - Used in the AssignFlow Hub project for deploying and maintaining cloud infrastructure with monitoring and fault-tolerant configurations. Also used in the NexSyncHub project for integrating AWS Rekognition for media moderation.
+2. **AWS S3** - Used in the NexSyncHub project for storage solutions.
+3. **AWS Rekognition** - Used in the NexSyncHub project to automatically inspect, flag, and quarantine policy-violating uploads.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (2):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0306</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Exhaustive recall verified: 3/3 required entities present (100% recall).
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">COMP-3</span>
+        <span class="test-category">Multi-Dimensional 3-Project Matrix</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">8280 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Compare all three projects by: database, authentication, real-time technology, cloud, payments, background processing."
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "Compare the three projects based on their database, authentication, real-time technology, cloud services, payments, and background processing."</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Full 3-project matrix: NexSyncHub, AssignFlow Hub, and Arts of Imagination Ever (AOIE) across all 6 dimensions.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">{
+  &quot;projects&quot;: {
+    &quot;NexSyncHub&quot;: {
+      &quot;database&quot;: &quot;MongoDB&quot;,
+      &quot;authentication&quot;: &quot;NextAuth.js, email verification, OTP-based password recovery, Cloudflare Turnstile protection&quot;,
+      &quot;real_time_technology&quot;: &quot;Socket.IO&quot;,
+      &quot;cloud_services&quot;: &quot;AWS S3&quot;,
+      &quot;payments&quot;: &quot;Stripe Checkout, Stripe Billing Portal&quot;,
+      &quot;background_processing&quot;: &quot;None mentioned&quot;
+    },
+    &quot;AssignFlow Hub&quot;: {
+      &quot;database&quot;: &quot;MERN Stack&quot;,
+      &quot;authentication&quot;: &quot;Role-based access control, secure authentication workflows&quot;,
+      &quot;real_time_technology&quot;: &quot;Socket.IO&quot;,
+      &quot;cloud_services&quot;: &quot;AWS, Render&quot;,
+      &quot;payments&quot;: &quot;None mentioned&quot;,
+      &quot;background_processing&quot;: &quot;Redis, BullMQ&quot;
+    },
+    &quot;Arts of Imagination Ever (AOIE)&quot;: {
+      &quot;database&quot;: &quot;MongoDB&quot;,
+      &quot;authentication&quot;: &quot;JWT Authentication, role-based access control&quot;,
+      &quot;real_time_technology&quot;: &quot;None mentioned&quot;,
+      &quot;cloud_services&quot;: &quot;None mentioned&quot;,
+      &quot;payments&quot;: &quot;None mentioned&quot;,
+      &quot;background_processing&quot;: &quot;None mentioned&quot;
+    }
+  }
+}</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (3):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0305</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0305</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">PROJECTS &amp;gt; Arts of Imagination Ever (AOIE) | Artist Showcase and Creative Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0320</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Exhaustive recall verified: 7/7 required entities present (100% recall).
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">COMP-4</span>
+        <span class="test-category">Unassociated Skills Detection</span>
+        <span class="test-completeness">Recall: 80%</span>
+        <span class="test-latency">5629 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "What technologies are mentioned in Technical Skills but not explicitly associated with a project?"
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "List the technologies mentioned in Technical Skills that are not explicitly associated with any project."</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Identifies standalone skills listed in Technical Skills (e.g. SQL, Express.js, Docker, Postman, Git, GitHub) that do not appear under project bullets.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The technologies mentioned in Technical Skills that are not explicitly associated with any project are: Docker, Git, GitHub, Postman, SQL.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (6):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0315</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0161</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0325</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 4</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0147</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 5</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0145</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 6</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0143</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Exhaustive recall verified: 4/5 required entities present (80% recall).
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">COMP-5</span>
+        <span class="test-category">Complete Technology Inventory</span>
+        <span class="test-completeness">Recall: 90%</span>
+        <span class="test-latency">7803 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Give me every technology mentioned in the resume without missing any."
+        
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Exhaustive sweep of all languages, frontend, backend, databases, real-time, cloud, auth, payments, and tools across the entire resume.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">[
+  &quot;Next.js&quot;,
+  &quot;React&quot;,
+  &quot;TypeScript&quot;,
+  &quot;Node.js&quot;,
+  &quot;MongoDB&quot;,
+  &quot;Redis&quot;,
+  &quot;AWS&quot;,
+  &quot;Stripe&quot;,
+  &quot;BullMQ&quot;,
+  &quot;Socket.IO&quot;,
+  &quot;Render&quot;,
+  &quot;JWT&quot;,
+  &quot;Upstash Redis&quot;,
+  &quot;AWS S3&quot;,
+  &quot;AWS Rekognition&quot;,
+  &quot;NextAuth.js&quot;,
+  &quot;Cloudflare Turnstile&quot;,
+  &quot;Docker&quot;,
+  &quot;Git&quot;,
+  &quot;GitHub&quot;,
+  &quot;Postman&quot;,
+  &quot;HTML5&quot;,
+  &quot;CSS3&quot;,
+  &quot;Tailwind CSS&quot;,
+  &quot;Express.js&quot;
+]</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (12):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">SUMMARY</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0313</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">ADDITIONAL INFORMATION</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0313</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0306</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 4</span>
+                    <span class="source-path">PROJECTS &amp;gt; Arts of Imagination Ever (AOIE) | Artist Showcase and Creative Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 5</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 6</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0296</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 7</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0156</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 8</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0147</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 9</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0145</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 10</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0139</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 11</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0135</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 12</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0325</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Exhaustive recall verified: 9/10 required entities present (90% recall).
+      </div>
+    </div>
+  
+
+    <div class="section-title">Round 1: Quality & Edge-Case Evaluation</div>
+    
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-1</span>
+        <span class="test-category">Multi-Chunk Synthesis</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">5742 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "What databases and real-time communication technologies are used across all my projects?"
+        
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Synthesizes databases (MongoDB, Redis, Upstash Redis) and real-time technologies (Socket.IO, BullMQ) from NexSyncHub, AssignFlow Hub, and Technical Skills.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">{
+  &quot;databases&quot;: [
+    &quot;MongoDB&quot;,
+    &quot;Redis&quot;,
+    &quot;Upstash Redis&quot;
+  ],
+  &quot;real_time_communication_technologies&quot;: [
+    &quot;Socket.IO&quot;
+  ]
+}</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (5):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0325</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0308</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0306</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 4</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 5</span>
+                    <span class="source-path">PROJECTS &amp;gt; Arts of Imagination Ever (AOIE) | Artist Showcase and Creative Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-2</span>
+        <span class="test-category">Cross-Project Comparison</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">8557 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Compare the tech stacks and authentication methods of NexSyncHub versus AssignFlow Hub."
+        
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Accurate side-by-side comparison. Attributes NextAuth.js/Turnstile to NexSyncHub and RBAC to AssignFlow Hub without cross-attributing.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">{
+  &quot;comparison&quot;: {
+    &quot;NexSyncHub&quot;: {
+      &quot;tech_stack&quot;: [
+        &quot;Next.js&quot;,
+        &quot;TypeScript&quot;,
+        &quot;MongoDB&quot;,
+        &quot;Socket.IO&quot;,
+        &quot;Upstash Redis&quot;,
+        &quot;AWS S3&quot;,
+        &quot;Stripe&quot;
+      ],
+      &quot;authentication_methods&quot;: [
+        &quot;NextAuth.js&quot;,
+        &quot;email verification&quot;,
+        &quot;OTP-based password recovery&quot;,
+        &quot;Cloudflare Turnstile protection&quot;,
+        &quot;Redis-powered rate limiting&quot;
+      ]
+    },
+    &quot;AssignFlow Hub&quot;: {
+      &quot;tech_stack&quot;: [
+        &quot;MERN Stack&quot;,
+        &quot;AWS&quot;,
+        &quot;Redis&quot;,
+        &quot;BullMQ&quot;,
+        &quot;Socket.IO&quot;,
+        &quot;Render&quot;
+      ],
+      &quot;authentication_methods&quot;: [
+        &quot;role-based access control&quot;,
+        &quot;secure authentication workflows&quot;
+      ]
+    }
+  }
+}</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (2):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0305</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0305</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-3</span>
+        <span class="test-category">Multi-Section Spread</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">8951 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Summarize all AWS services, security measures, and deployment platforms mentioned across my entire resume."
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "Summarize every AWS service, security measure, and deployment platform mentioned in my entire resume without missing any."</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Gathers AWS (S3, Rekognition), Security (JWT, OAuth 2.0, NextAuth, Turnstile, Rate Limiting), and Deployment (Docker, Render, AWS) across Summary, Projects, Skills, and Additional Info.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">{
+  &quot;AWS Services&quot;: [
+    &quot;AWS S3&quot;,
+    &quot;AWS Rekognition&quot;
+  ],
+  &quot;Security Measures&quot;: [
+    &quot;JWT Authentication&quot;,
+    &quot;NextAuth.js&quot;,
+    &quot;Cloudflare Turnstile&quot;
+  ],
+  &quot;Deployment Platforms&quot;: [
+    &quot;Render&quot;
+  ]
+}</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (5):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 2</span>
+                    <span class="source-path">PROJECTS &amp;gt; AssignFlow Hub | Production-Grade SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0306</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 3</span>
+                    <span class="source-path">PROJECTS &amp;gt; Arts of Imagination Ever (AOIE) | Artist Showcase and Creative Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0299</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 4</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0296</span>
+                  </li>
+                
+                  <li>
+                    <span class="source-num">Source 5</span>
+                    <span class="source-path">TECHNICAL SKILLS</span>
+                    <span class="source-page">Page 2</span>
+                    <span class="source-score">Score: 0.0325</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-4</span>
+        <span class="test-category">Zero-Evidence / Out-of-Bound</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">4414 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "What Kubernetes cluster configuration and Terraform modules were used for deployment?"
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "What Kubernetes cluster configuration and Terraform modules were used for deployment in my project?"</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Explicit fallback: states information is not available in the document. Citations array must be empty [].
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The document does not contain information about Kubernetes cluster configuration or Terraform modules used for deployment in any project.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (0):</strong>
+        <p class="no-sources">No citations returned (Zero-Evidence / Grounded Fallback)</p>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-5</span>
+        <span class="test-category">Ambiguous / Underspecified</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">4535 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "What performance bottleneck did I optimize in 2024?"
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "What performance bottleneck did I optimize in the year 2024?"</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Non-hallucination: states information/date 2024 is not available in the document instead of guessing metric details.
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The document does not contain information about any performance bottleneck that was optimized in the year 2024.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (0):</strong>
+        <p class="no-sources">No citations returned (Zero-Evidence / Grounded Fallback)</p>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+    <div class="test-card passed">
+      <div class="test-header">
+        <span class="badge passed">PASSED</span>
+        <span class="test-id">QUAL-6</span>
+        <span class="test-category">Lexical vs Semantic Conflict</span>
+        <span class="test-completeness">Recall: 100%</span>
+        <span class="test-latency">4385 ms</span>
+      </div>
+
+      <div class="query-section">
+        <strong>User Query:</strong> "Which project features moderation tools for policy-violating media uploads?"
+        <div class="rewritten-query"><strong>Standalone Rewritten Query:</strong> "Which project includes moderation tools specifically designed for handling policy-violating media uploads?"</div>
+      </div>
+
+      <div class="expected-section">
+        <strong>Target Evaluation Goal:</strong> Semantic precision: accurately identifies NexSyncHub (AWS Rekognition media moderation pipeline) despite lexical overlap in AOIE (&#039;user moderation tools&#039;).
+      </div>
+
+      <div class="answer-section">
+        <strong>RAG Generated Answer:</strong>
+        <div class="answer-box">The project that includes moderation tools for handling policy-violating media uploads is NexSyncHub. It features an AI-powered media moderation pipeline using AWS Rekognition to automatically inspect, flag, and quarantine policy-violating uploads.</div>
+      </div>
+
+      <div class="sources-section">
+        <strong>Cited Sources (1):</strong>
+        <ul class="source-list">
+                
+                  <li>
+                    <span class="source-num">Source 1</span>
+                    <span class="source-path">PROJECTS &amp;gt; NexSyncHub | Real-Time Collaborative SaaS Platform</span>
+                    <span class="source-page">Page 1</span>
+                    <span class="source-score">Score: 0.0328</span>
+                  </li>
+                
+              </ul>
+      </div>
+
+      <div class="notes-section">
+        <strong>Evaluation Notes:</strong> Verified strict grounding, citation integrity, and exhaustive recall.
+      </div>
+    </div>
+  
+  </div>
+</body>
+</html>
