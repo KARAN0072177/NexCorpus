@@ -1,7 +1,20 @@
-import Link from "next/link";
-import { MessageSquare, ArrowRight, CheckCircle2, Clock, ShieldAlert } from "lucide-react";
+"use client";
 
-interface DocumentItem {
+import { useState } from "react";
+import Link from "next/link";
+import {
+  MessageSquare,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  ShieldAlert,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import DocumentRenameModal from "./document-rename-modal";
+import DocumentDeleteModal from "./document-delete-modal";
+
+export interface DocumentItem {
   id: string;
   originalFilename: string;
   mimeType: string;
@@ -35,6 +48,8 @@ interface DocumentItem {
 
 interface DocumentCardProps {
   document: DocumentItem;
+  onRename?: (documentId: string, newFilename: string) => void;
+  onDelete?: (documentId: string) => void;
 }
 
 function formatBytes(bytes: number) {
@@ -109,7 +124,12 @@ function getDocumentStatus(document: DocumentItem) {
 
 export default function DocumentCard({
   document,
+  onRename,
+  onDelete,
 }: DocumentCardProps) {
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+
   const { label, isReady, isError } = getDocumentStatus(document);
   const friendlyType = formatFriendlyType(document.mimeType, document.extension);
   const formattedDate = new Date(document.createdAt).toLocaleDateString(undefined, {
@@ -119,56 +139,104 @@ export default function DocumentCard({
   });
 
   return (
-    <div className="group flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-5 transition hover:border-sky-500/40 hover:bg-slate-900/80 hover:shadow-2xl">
-      <div className="flex min-w-0 items-center gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-indigo-500/10 text-xs font-bold uppercase text-sky-400">
-          {document.extension.replace(".", "") || "DOC"}
-        </div>
+    <>
+      <div className="group flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-900/40 p-5 transition hover:border-sky-500/40 hover:bg-slate-900/80 hover:shadow-2xl">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-sky-500/20 bg-gradient-to-br from-sky-500/10 to-indigo-500/10 text-xs font-bold uppercase text-sky-400">
+            {document.extension.replace(".", "") || "DOC"}
+          </div>
 
-        <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-white group-hover:text-sky-300">
-            {document.originalFilename}
-          </p>
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-white group-hover:text-sky-300">
+              {document.originalFilename}
+            </p>
 
-          <div className="mt-1 flex items-center gap-2.5 text-xs text-slate-400">
-            <span className="font-medium text-slate-300">{friendlyType}</span>
-            <span>•</span>
-            <span>{formatBytes(document.size)}</span>
-            <span>•</span>
-            <span>Added {formattedDate}</span>
+            <div className="mt-1 flex items-center gap-2.5 text-xs text-slate-400">
+              <span className="font-medium text-slate-300">{friendlyType}</span>
+              <span>•</span>
+              <span>{formatBytes(document.size)}</span>
+              <span>•</span>
+              <span>Added {formattedDate}</span>
+            </div>
           </div>
         </div>
+
+        <div className="flex items-center gap-3 shrink-0 justify-between sm:justify-end">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${
+              isReady
+                ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : isError
+                ? "border border-rose-500/30 bg-rose-500/10 text-rose-300"
+                : "border border-amber-500/30 bg-amber-500/10 text-amber-300"
+            }`}
+          >
+            {isReady ? (
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+            ) : isError ? (
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
+            ) : (
+              <Clock className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
+            )}
+            {label}
+          </span>
+
+          <div className="flex items-center gap-1.5">
+            {/* Rename Button */}
+            <button
+              type="button"
+              onClick={() => setIsRenameOpen(true)}
+              title="Rename Document"
+              aria-label="Rename Document"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-400 transition hover:border-sky-500/40 hover:bg-sky-500/10 hover:text-sky-300"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+
+            {/* Delete Button */}
+            <button
+              type="button"
+              onClick={() => setIsDeleteOpen(true)}
+              title="Delete Document"
+              aria-label="Delete Document"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-400"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          <Link
+            href={`/documents/${document.id}`}
+            className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-300 transition hover:border-sky-400 hover:bg-sky-500 hover:text-white hover:shadow-lg hover:shadow-sky-500/20"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            <span>Ask Questions</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </div>
 
-      <div className="flex items-center gap-4 shrink-0 justify-between sm:justify-end">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${
-            isReady
-              ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-              : isError
-              ? "border border-rose-500/30 bg-rose-500/10 text-rose-300"
-              : "border border-amber-500/30 bg-amber-500/10 text-amber-300"
-          }`}
-        >
-          {isReady ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-          ) : isError ? (
-            <ShieldAlert className="h-3.5 w-3.5 text-rose-400" />
-          ) : (
-            <Clock className="h-3.5 w-3.5 text-amber-400 animate-pulse" />
-          )}
-          {label}
-        </span>
+      {/* Rename Modal */}
+      <DocumentRenameModal
+        isOpen={isRenameOpen}
+        onClose={() => setIsRenameOpen(false)}
+        documentId={document.id}
+        currentFilename={document.originalFilename}
+        onRenamed={(docId, newName) => {
+          onRename?.(docId, newName);
+        }}
+      />
 
-        <Link
-          href={`/documents/${document.id}`}
-          className="inline-flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-xs font-semibold text-sky-300 transition hover:border-sky-400 hover:bg-sky-500 hover:text-white hover:shadow-lg hover:shadow-sky-500/20"
-        >
-          <MessageSquare className="h-3.5 w-3.5" />
-          <span>Ask Questions</span>
-          <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </div>
-    </div>
+      {/* Delete Modal */}
+      <DocumentDeleteModal
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        documentId={document.id}
+        filename={document.originalFilename}
+        onDeleted={(docId) => {
+          onDelete?.(docId);
+        }}
+      />
+    </>
   );
 }

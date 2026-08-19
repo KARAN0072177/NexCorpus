@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Bot,
@@ -18,10 +19,14 @@ import {
   CheckCircle2,
   BookOpen,
   Loader2,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import SidebarSkeleton from "./sidebar-skeleton";
 import UserProfileModal, { UserProfileData } from "@/app/components/auth/user-profile-modal";
 import UserAvatar from "@/app/components/auth/user-avatar";
+import DocumentRenameModal from "@/app/components/documents/document-rename-modal";
+import DocumentDeleteModal from "@/app/components/documents/document-delete-modal";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -69,9 +74,12 @@ export default function DocumentChatWorkspace({
   username = "User",
   user,
 }: DocumentChatWorkspaceProps) {
+  const router = useRouter();
   const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
   const [isDocumentLoading, setIsDocumentLoading] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [activeClickedPrompt, setActiveClickedPrompt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [inputQuery, setInputQuery] = useState("");
@@ -606,20 +614,40 @@ export default function DocumentChatWorkspace({
             </button>
           )}
 
-          <button
-            onClick={() => setIsProfileOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 py-1 pl-1.5 pr-3 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
-          >
-            <UserAvatar
-              image={user?.image}
-              email={user?.email}
-              name={user?.name}
-              username={username}
-              size="xs"
-            />
-            <span className="font-medium">@{username}</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setIsRenameOpen(true)}
+              title="Rename Document"
+              aria-label="Rename Document"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:border-sky-500/40 hover:bg-sky-500/10 hover:text-sky-300"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsDeleteOpen(true)}
+              title="Delete Document"
+              aria-label="Delete Document"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-400 transition hover:border-rose-500/40 hover:bg-rose-500/10 hover:text-rose-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 py-1 pl-1.5 pr-3 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
+            >
+              <UserAvatar
+                image={user?.image}
+                email={user?.email}
+                name={user?.name}
+                username={username}
+                size="xs"
+              />
+              <span className="font-medium">@{username}</span>
+            </button>
+          </div>
       </header>
 
       {/* User Profile Popup Modal */}
@@ -628,6 +656,34 @@ export default function DocumentChatWorkspace({
         onClose={() => setIsProfileOpen(false)}
         user={user ?? { username }}
       />
+
+      {/* Rename Modal */}
+      {documentInfo && (
+        <DocumentRenameModal
+          isOpen={isRenameOpen}
+          onClose={() => setIsRenameOpen(false)}
+          documentId={documentInfo.id}
+          currentFilename={documentInfo.originalFilename}
+          onRenamed={(_docId, newName) => {
+            setDocumentInfo((prev) =>
+              prev ? { ...prev, originalFilename: newName } : null
+            );
+          }}
+        />
+      )}
+
+      {/* Delete Modal */}
+      {documentInfo && (
+        <DocumentDeleteModal
+          isOpen={isDeleteOpen}
+          onClose={() => setIsDeleteOpen(false)}
+          documentId={documentInfo.id}
+          filename={documentInfo.originalFilename}
+          onDeleted={() => {
+            router.push("/");
+          }}
+        />
+      )}
 
       {/* Indexing Warning Banner */}
       {!isFullyIndexed && (

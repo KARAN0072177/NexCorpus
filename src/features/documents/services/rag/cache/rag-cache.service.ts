@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { AskDocumentResult } from "../rag.service";
 
 interface CacheEntry {
+  documentId: string;
   result: AskDocumentResult;
   expiresAt: number;
 }
@@ -48,9 +49,18 @@ export class RagCacheService {
   ): void {
     const key = this.generateKey(documentId, query, conversation);
     this.cache.set(key, {
+      documentId,
       result,
       expiresAt: Date.now() + ttlMs,
     });
+  }
+
+  invalidateDocument(documentId: string): void {
+    for (const [key, entry] of this.cache.entries()) {
+      if (entry.documentId === documentId) {
+        this.cache.delete(key);
+      }
+    }
   }
 
   clear(): void {

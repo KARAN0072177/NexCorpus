@@ -1,46 +1,18 @@
-import DocumentCard from "./document-card";
+import DocumentCard, { DocumentItem } from "./document-card";
 import DocumentCardSkeleton from "./document-card-skeleton";
-
-interface DocumentItem {
-  id: string;
-  originalFilename: string;
-  mimeType: string;
-  extension: string;
-  size: number;
-
-  storageStatus: "PENDING" | "UPLOADED" | "FAILED";
-
-  securityStatus:
-    | "PENDING"
-    | "SCANNING"
-    | "APPROVED"
-    | "REJECTED"
-    | "FAILED";
-
-  processingStatus:
-    | "NOT_STARTED"
-    | "PROCESSING"
-    | "COMPLETED"
-    | "FAILED";
-
-  indexingStatus:
-    | "NOT_STARTED"
-    | "PROCESSING"
-    | "COMPLETED"
-    | "FAILED";
-
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface DocumentListProps {
   documents: DocumentItem[];
   isLoading?: boolean;
+  onRename?: (documentId: string, newFilename: string) => void;
+  onDelete?: (documentId: string) => void;
 }
 
 export default function DocumentList({
   documents,
   isLoading = false,
+  onRename,
+  onDelete,
 }: DocumentListProps) {
   if (isLoading) {
     return (
@@ -69,6 +41,8 @@ export default function DocumentList({
         <DocumentCard
           key={document.id}
           document={document}
+          onRename={onRename}
+          onDelete={onDelete}
         />
       ))}
     </div>

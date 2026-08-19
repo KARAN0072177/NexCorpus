@@ -82,6 +82,18 @@ export default function DocumentWorkspace({
     loadDocuments();
   }, []);
 
+  function handleRenameDocument(documentId: string, newFilename: string) {
+    setDocuments((prev) =>
+      prev.map((doc) =>
+        doc.id === documentId ? { ...doc, originalFilename: newFilename } : doc
+      )
+    );
+  }
+
+  function handleDeleteDocument(documentId: string) {
+    setDocuments((prev) => prev.filter((doc) => doc.id !== documentId));
+  }
+
   async function uploadFile(file: File) {
     setError("");
     setUploadMessage("");
@@ -350,7 +362,12 @@ export default function DocumentWorkspace({
             </span>
           </div>
 
-          <DocumentList documents={documents} isLoading={isLoadingDocuments} />
+          <DocumentList
+            documents={documents}
+            isLoading={isLoadingDocuments}
+            onRename={handleRenameDocument}
+            onDelete={handleDeleteDocument}
+          />
         </section>
       </div>
     </main>
