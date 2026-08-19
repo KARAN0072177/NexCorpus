@@ -68,7 +68,7 @@ export async function updateUsername(
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

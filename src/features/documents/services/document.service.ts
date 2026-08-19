@@ -184,7 +184,7 @@ export async function markDocumentUploaded({
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     }
   );
 }

@@ -1,3 +1,5 @@
+import "@/lib/polyfills/pdfjs-polyfill";
+
 import type {
   ContentBlock,
 } from "../../../models/processed-document.model";
@@ -10,28 +12,10 @@ import type {
 
 import {
   getDocument,
-  GlobalWorkerOptions,
 } from "pdfjs-dist/legacy/build/pdf.mjs";
+import "pdfjs-dist/legacy/build/pdf.worker.mjs";
 
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-
-/*
- * PDF.js worker configuration for the Next.js server.
- */
-
-const pdfWorkerPath = path.join(
-  process.cwd(),
-  "node_modules",
-  "pdfjs-dist",
-  "legacy",
-  "build",
-  "pdf.worker.mjs"
-);
-
-GlobalWorkerOptions.workerSrc =
-  pathToFileURL(pdfWorkerPath).href;
 
 interface ExtractedLine {
   text: string;

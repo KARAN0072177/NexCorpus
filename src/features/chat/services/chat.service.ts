@@ -150,7 +150,7 @@ export class ChatService {
       {
         $set: { title: cleanTitle },
       },
-      { new: true }
+      { returnDocument: "after" }
     );
   }
 

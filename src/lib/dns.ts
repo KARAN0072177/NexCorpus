@@ -1,3 +1,4 @@
+import "./polyfills/pdfjs-polyfill";
 import dns from "dns";
 import { Resolver } from "dns/promises";
 

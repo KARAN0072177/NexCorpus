@@ -150,7 +150,7 @@ export async function processDocument({
           },
         },
         {
-          new: true,
+          returnDocument: "after",
           upsert: true,
           setDefaultsOnInsert: true,
         }
