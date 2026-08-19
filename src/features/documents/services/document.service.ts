@@ -6,6 +6,8 @@ import { ProcessedDocument } from "../models/processed-document.model";
 import { DocumentAIAnalysis } from "../models/document-ai-analysis.model";
 import { DocumentMetadata } from "../models/document-metadata.model";
 import { DocumentStructure } from "../models/document-structure.model";
+import { ChatSession } from "@/features/chat/models/chat-session.model";
+import { ChatMessage } from "@/features/chat/models/chat-message.model";
 import { deleteS3Object } from "./storage/s3.service";
 import { ragCacheService } from "./rag/cache/rag-cache.service";
 
@@ -133,6 +135,8 @@ export async function deleteDocument(
     DocumentAIAnalysis.deleteMany({ documentId: docObjectId }),
     DocumentMetadata.deleteMany({ documentId: docObjectId }),
     DocumentStructure.deleteMany({ documentId: docObjectId }),
+    ChatSession.deleteMany({ documentId: docObjectId }),
+    ChatMessage.deleteMany({ documentId: docObjectId }),
   ]);
 
   // 3. Delete from S3 storage if storageKey exists

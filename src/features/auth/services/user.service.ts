@@ -7,6 +7,8 @@ import { ProcessedDocument } from "@/features/documents/models/processed-documen
 import { DocumentAIAnalysis } from "@/features/documents/models/document-ai-analysis.model";
 import { DocumentMetadata } from "@/features/documents/models/document-metadata.model";
 import { DocumentStructure } from "@/features/documents/models/document-structure.model";
+import { ChatSession } from "@/features/chat/models/chat-session.model";
+import { ChatMessage } from "@/features/chat/models/chat-message.model";
 import { deleteS3Object } from "@/features/documents/services/storage/s3.service";
 import { ragCacheService } from "@/features/documents/services/rag/cache/rag-cache.service";
 
@@ -119,7 +121,13 @@ export async function deleteUserAccount(userId: string) {
     await Document.deleteMany({ ownerId: userObjectId });
   }
 
-  // 6. Delete the User record from MongoDB
+  // 6. Cascade delete all chat sessions and messages for this user
+  await Promise.allSettled([
+    ChatSession.deleteMany({ userId: userObjectId }),
+    ChatMessage.deleteMany({ userId: userObjectId }),
+  ]);
+
+  // 7. Delete the User record from MongoDB
   await User.findByIdAndDelete(userId);
 
   return { success: true };
