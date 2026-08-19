@@ -100,6 +100,51 @@ export default function DocumentWorkspace({
     return filename.slice(lastDot).toLowerCase();
   }
 
+  function getMimeType(filename: string, fileType?: string) {
+    if (fileType && fileType.trim()) {
+      return fileType.trim().toLowerCase();
+    }
+    const ext = getExtension(filename);
+    if (ext === ".pdf") return "application/pdf";
+    if (ext === ".docx")
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    if (ext === ".doc") return "application/msword";
+    if (ext === ".txt") return "text/plain";
+    if (ext === ".md") return "text/markdown";
+    return "application/pdf";
+  }
+
+  async function parseApiResponse(res: Response, fallbackError: string) {
+    try {
+      const text = await res.text();
+      if (!text) {
+        if (!res.ok) {
+          if (res.status === 401) throw new Error("Your session has expired. Please sign in again.");
+          if (res.status === 413) throw new Error("File is too large. Please upload a smaller document.");
+          if (res.status === 429) throw new Error("Too many requests. Please wait a moment and try again.");
+          throw new Error(`${fallbackError} (Status ${res.status})`);
+        }
+        return {};
+      }
+      const data = JSON.parse(text);
+      if (!res.ok) {
+        throw new Error(data.error || data.message || `${fallbackError} (Status ${res.status})`);
+      }
+      return data;
+    } catch (err: any) {
+      if (err.message && !err.message.includes("JSON")) {
+        throw err;
+      }
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Your session has expired. Please sign in again.");
+        if (res.status === 413) throw new Error("File is too large. Please upload a smaller document.");
+        if (res.status === 429) throw new Error("Too many requests. Please wait a moment and try again.");
+        throw new Error(`${fallbackError} (Status ${res.status})`);
+      }
+      throw new Error("Unable to parse server response. Please try again.");
+    }
+  }
+
   async function uploadFile(file: File) {
     setError("");
     setUploadMessage("");
@@ -107,6 +152,9 @@ export default function DocumentWorkspace({
     setUploadProgressStep(1);
 
     try {
+      const effectiveMimeType = getMimeType(file.name, file.type);
+      const effectiveExtension = getExtension(file.name);
+
       /*
        * STEP 1: Create Document Record in DB
        */
@@ -116,16 +164,19 @@ export default function DocumentWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           originalFilename: file.name,
-          mimeType: file.type || "application/pdf",
-          extension: getExtension(file.name),
+          mimeType: effectiveMimeType,
+          extension: effectiveExtension,
           size: file.size,
         }),
       });
 
-      const createData = await createResponse.json();
+      const createData = await parseApiResponse(
+        createResponse,
+        "Unable to start document upload"
+      );
 
-      if (!createResponse.ok) {
-        throw new Error(createData.error ?? "Unable to start file upload");
+      if (!createData.document?.id) {
+        throw new Error("Unable to initialize document in workspace.");
       }
 
       const documentId = createData.document.id;
@@ -140,14 +191,17 @@ export default function DocumentWorkspace({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contentType: file.type || "application/pdf" }),
+          body: JSON.stringify({ contentType: effectiveMimeType }),
         }
       );
 
-      const presignedData = await presignedResponse.json();
+      const presignedData = await parseApiResponse(
+        presignedResponse,
+        "Unable to prepare secure upload link"
+      );
 
-      if (!presignedResponse.ok) {
-        throw new Error(presignedData.error ?? "Unable to prepare upload");
+      if (!presignedData.uploadUrl) {
+        throw new Error("Storage link could not be generated. Please try again.");
       }
 
       /*
@@ -155,14 +209,23 @@ export default function DocumentWorkspace({
        */
       setUploadProgressStep(3);
       setUploadMessage("Uploading file to secure storage...");
-      const s3UploadResponse = await fetch(presignedData.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/pdf" },
-        body: file,
-      });
+      let s3UploadResponse: Response;
+      try {
+        s3UploadResponse = await fetch(presignedData.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": effectiveMimeType },
+          body: file,
+        });
+      } catch {
+        throw new Error(
+          "Network error while transferring file to storage. Please check your connection."
+        );
+      }
 
       if (!s3UploadResponse.ok) {
-        throw new Error("Failed to upload file to storage");
+        throw new Error(
+          `Storage rejected the file upload (Status ${s3UploadResponse.status}). Please try again.`
+        );
       }
 
       /*
@@ -175,11 +238,10 @@ export default function DocumentWorkspace({
         { method: "POST" }
       );
 
-      const completeData = await completeResponse.json();
-
-      if (!completeResponse.ok) {
-        throw new Error(completeData.error ?? "Upload completion failed");
-      }
+      await parseApiResponse(
+        completeResponse,
+        "Unable to verify uploaded document in storage"
+      );
 
       setUploadProgressStep(4);
       setUploadMessage("Document uploaded successfully! Ready to answer questions.");
@@ -192,7 +254,13 @@ export default function DocumentWorkspace({
       }, 2000);
     } catch (error: any) {
       console.error("Upload process failed:", error);
-      setError(error.message ?? "An error occurred during upload");
+      const friendlyMessage =
+        error.message?.includes("Failed to execute") ||
+        error.message?.includes("JSON")
+          ? "Upload failed due to a server connection issue. Please try again."
+          : error.message || "An unexpected error occurred during upload.";
+
+      setError(friendlyMessage);
       setIsUploading(false);
       setUploadProgressStep(0);
     }

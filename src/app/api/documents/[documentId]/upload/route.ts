@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
-
 import { requireApiUser } from "@/lib/auth/require-api-user";
-
 import { findDocumentById } from "@/features/documents/services/document.service";
-
 import { createDocumentStorageKey } from "@/features/documents/services/storage/storage-key";
-
 import { createUploadPresignedUrl } from "@/features/documents/services/storage/s3.service";
 
 interface RouteContext {
@@ -50,25 +46,12 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-
-    if (typeof body.contentType !== "string") {
-      return NextResponse.json(
-        {
-          error: "contentType is required",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (body.contentType !== document.mimeType) {
-      return NextResponse.json(
-        {
-          error: "Content type does not match document metadata",
-        },
-        { status: 400 }
-      );
-    }
+    const body = await request.json().catch(() => ({}));
+    const effectiveContentType = (
+      typeof body.contentType === "string" && body.contentType.trim()
+        ? body.contentType.trim().toLowerCase()
+        : document.mimeType || "application/pdf"
+    );
 
     const storageKey = createDocumentStorageKey({
       ownerId: user._id.toString(),
@@ -78,7 +61,7 @@ export async function POST(
 
     const uploadUrl = await createUploadPresignedUrl({
       key: storageKey,
-      contentType: document.mimeType,
+      contentType: effectiveContentType,
     });
 
     return NextResponse.json({
@@ -91,7 +74,7 @@ export async function POST(
 
     return NextResponse.json(
       {
-        error: "Internal server error",
+        error: "Internal server error during upload preparation",
       },
       { status: 500 }
     );

@@ -47,7 +47,7 @@ export async function POST(
     if (document.storageStatus !== "PENDING") {
       return NextResponse.json(
         {
-          error: "Document is not waiting for upload",
+          error: "Document has already been processed or is not waiting for upload",
         },
         { status: 409 }
       );
@@ -59,23 +59,25 @@ export async function POST(
       extension: document.extension,
     });
 
-    const object = await getObjectMetadata({
-      key: storageKey,
-    });
-
-    if (!object.ContentLength || object.ContentLength <= 0) {
+    let object;
+    try {
+      object = await getObjectMetadata({
+        key: storageKey,
+      });
+    } catch (s3Error: any) {
+      console.error("[Upload Complete] S3 HeadObject failed:", s3Error);
       return NextResponse.json(
         {
-          error: "Uploaded object is empty or unavailable",
+          error: "The uploaded file could not be verified in storage. Please try uploading again.",
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
-    if (object.ContentLength !== document.size) {
+    if (!object || !object.ContentLength || object.ContentLength <= 0) {
       return NextResponse.json(
         {
-          error: "Uploaded file size does not match metadata",
+          error: "The uploaded file appears empty or unavailable in storage.",
         },
         { status: 400 }
       );
@@ -90,7 +92,7 @@ export async function POST(
     if (!updatedDocument) {
       return NextResponse.json(
         {
-          error: "Unable to finalize document upload",
+          error: "Unable to finalize document upload in database",
         },
         { status: 500 }
       );
@@ -138,7 +140,7 @@ export async function POST(
 
     return NextResponse.json(
       {
-        error: "Unable to verify uploaded file",
+        error: "Unable to complete document verification",
       },
       { status: 500 }
     );
