@@ -103,6 +103,64 @@ Answer the user's question using only the document context. Format the answer as
     return this.parseResponse(content);
   }
 
+  async *generateAnswerStream(
+    input: GenerationProviderInput
+  ): AsyncIterable<string> {
+    const { query, context } = input;
+
+    const stream = await this.client.chat.completions.create({
+      model: this.model,
+      temperature: 0,
+      stream: true,
+      messages: [
+        {
+          role: "system",
+          content: `
+You are a friendly document question-answering assistant.
+
+Answer the user's question using ONLY the provided DOCUMENT CONTEXT.
+
+The context contains numbered sources such as:
+SOURCE 1
+SOURCE 2
+SOURCE 3
+
+Rules:
+1. Every factual claim in your answer must be directly supported by text in one or more provided SOURCE chunks.
+2. Present answers in clean, beautiful, human-readable Markdown (using bullet points, bold headers, or Markdown tables).
+3. If the provided DOCUMENT CONTEXT contains no relevant text or facts matching the question at all, state clearly that the document does not contain that information.
+4. Output Markdown text directly (do NOT wrap in JSON format when streaming).
+          `.trim(),
+        },
+        {
+          role: "user",
+          content: `
+DOCUMENT CONTEXT:
+
+${context}
+
+---
+
+USER QUESTION:
+
+${query}
+
+---
+
+Answer the user's question using only the document context. Format the answer in clean human-readable Markdown.
+          `.trim(),
+        },
+      ],
+    });
+
+    for await (const chunk of stream) {
+      const token = chunk.choices[0]?.delta?.content;
+      if (token) {
+        yield token;
+      }
+    }
+  }
+
   private parseResponse(content: string): GeneratedAnswer {
     let parsed: any;
 

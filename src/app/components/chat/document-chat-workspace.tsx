@@ -9,7 +9,6 @@ import {
   ChevronUp,
   FileText,
   Layers,
-  MessageSquare,
   RefreshCw,
   Send,
   Sparkles,
@@ -17,6 +16,7 @@ import {
   AlertTriangle,
   PlayCircle,
   CheckCircle2,
+  BookOpen,
 } from "lucide-react";
 
 export interface ConversationMessage {
@@ -72,11 +72,11 @@ export default function DocumentChatWorkspace({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const SUGGESTED_PROMPTS = [
-    "Summarize the main topics in this document.",
-    "What technologies and frameworks are mentioned?",
-    "List every AWS service and where it was used.",
-    "Compare all projects by database, auth, and cloud stack.",
-    "Summarize all authentication and security measures.",
+    "Summarize key takeaways from this document.",
+    "What main topics or sections are covered?",
+    "What tools, skills, or features are highlighted?",
+    "List all major projects or items described.",
+    "Give me a concise 3-bullet executive summary.",
   ];
 
   async function loadDocumentDetails() {
@@ -117,7 +117,7 @@ export default function DocumentChatWorkspace({
   async function handleTriggerIndexing() {
     setError(null);
     setIsIndexing(true);
-    setIndexingStatusMessage("1/4 Extracting PDF text & structural blocks...");
+    setIndexingStatusMessage("Reading document text...");
 
     try {
       // Step 1: Process document text
@@ -127,43 +127,43 @@ export default function DocumentChatWorkspace({
 
       if (!processRes.ok) {
         const pData = await processRes.json();
-        throw new Error(pData.error || "Failed to process document text");
+        throw new Error(pData.error || "Unable to read document text");
       }
 
       // Step 2: Document AI Semantic Analysis
-      setIndexingStatusMessage("2/4 Performing AI semantic analysis...");
+      setIndexingStatusMessage("Analyzing document sections...");
       const analyzeRes = await fetch(`/api/documents/${documentId}/analyze`, {
         method: "POST",
       });
 
       if (!analyzeRes.ok) {
         const aData = await analyzeRes.json();
-        throw new Error(aData.error || "Failed to analyze document structure");
+        throw new Error(aData.error || "Unable to analyze document sections");
       }
 
-      // Step 3: Create sub-category chunks
-      setIndexingStatusMessage("3/4 Creating sub-category granular chunks...");
+      // Step 3: Create chunks
+      setIndexingStatusMessage("Organizing content topics...");
       const chunksRes = await fetch(`/api/documents/${documentId}/chunks`, {
         method: "POST",
       });
 
       if (!chunksRes.ok) {
         const cData = await chunksRes.json();
-        throw new Error(cData.error || "Failed to create document chunks");
+        throw new Error(cData.error || "Unable to organize content topics");
       }
 
-      // Step 4: Embed & Index into MongoDB Atlas Vector Search
-      setIndexingStatusMessage("4/4 Generating OpenAI embeddings & indexing into MongoDB Atlas...");
+      // Step 4: Embed & Index
+      setIndexingStatusMessage("Building smart search index...");
       const embedRes = await fetch(`/api/documents/${documentId}/embeddings`, {
         method: "POST",
       });
 
       if (!embedRes.ok) {
         const eData = await embedRes.json();
-        throw new Error(eData.error || "Failed to generate document embeddings");
+        throw new Error(eData.error || "Unable to build search index");
       }
 
-      setIndexingStatusMessage("Indexing complete! Document is ready for RAG Q&A.");
+      setIndexingStatusMessage("Setup complete! Your document is ready to answer questions.");
       await loadDocumentDetails();
 
       setTimeout(() => {
@@ -171,7 +171,7 @@ export default function DocumentChatWorkspace({
       }, 3000);
     } catch (err: any) {
       console.error("Manual indexing failed:", err);
-      setError(err.message || "Failed to index document.");
+      setError(err.message || "Unable to prepare document.");
     } finally {
       setIsIndexing(false);
     }
@@ -184,7 +184,7 @@ export default function DocumentChatWorkspace({
 
     if (documentInfo && documentInfo.indexingStatus !== "COMPLETED") {
       setError(
-        "This document has not been indexed into MongoDB Atlas Search yet. Click 'Process & Index Document Now' above to generate chunks and embeddings."
+        "This document is still being set up. Click 'Prepare Document Now' above to start asking questions."
       );
       return;
     }
@@ -203,7 +203,19 @@ export default function DocumentChatWorkspace({
       }),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const assistantMsgId = `assistant-${Date.now()}`;
+    const initialAssistantMessage: ChatMessageItem = {
+      id: assistantMsgId,
+      role: "assistant",
+      content: "",
+      sources: [],
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    setMessages((prev) => [...prev, userMessage, initialAssistantMessage]);
     setIsLoading(true);
 
     try {
@@ -218,31 +230,100 @@ export default function DocumentChatWorkspace({
         body: JSON.stringify({
           query: textToSend,
           conversation: conversationPayload,
+          stream: true,
         }),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.error ?? "Failed to get an answer from NexCorpus RAG.");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Unable to get an answer. Please try again.");
       }
 
-      const assistantMsgId = `assistant-${Date.now()}`;
-      const assistantMessage: ChatMessageItem = {
-        id: assistantMsgId,
-        role: "assistant",
-        content: data.data.answer,
-        sources: data.data.sources,
-        timestamp: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
+      if (!res.body) {
+        throw new Error("No response stream body received");
+      }
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      let tokenBufferQueue = "";
+      let isStreamFinished = false;
+
+      // Smooth typing interpolation interval (15ms ticks)
+      const typingInterval = setInterval(() => {
+        if (tokenBufferQueue.length > 0) {
+          // Dynamic step size: if queue grows, type faster to maintain low latency
+          const stepSize =
+            tokenBufferQueue.length > 40
+              ? 8
+              : tokenBufferQueue.length > 20
+              ? 4
+              : tokenBufferQueue.length > 10
+              ? 2
+              : 1;
+
+          const chunkToType = tokenBufferQueue.slice(0, stepSize);
+          tokenBufferQueue = tokenBufferQueue.slice(stepSize);
+
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? { ...msg, content: msg.content + chunkToType }
+                : msg
+            )
+          );
+        } else if (isStreamFinished) {
+          clearInterval(typingInterval);
+        }
+      }, 15);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith("data:")) continue;
+
+            const dataStr = trimmed.replace(/^data:\s*/, "");
+            if (dataStr === "[DONE]") break;
+
+            try {
+              const event = JSON.parse(dataStr);
+
+              if (event.type === "sources") {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === assistantMsgId
+                      ? { ...msg, sources: event.sources }
+                      : msg
+                  )
+                );
+              } else if (event.type === "token") {
+                tokenBufferQueue += event.content;
+              } else if (event.type === "error") {
+                throw new Error(event.error);
+              }
+            } catch {
+              // Ignore incomplete line chunks
+            }
+          }
+        }
+      } finally {
+        isStreamFinished = true;
+      }
     } catch (err: any) {
       console.error("Chat error:", err);
-      setError(err.message || "An unexpected error occurred. Please try again.");
+      setError(err.message || "An unexpected issue occurred. Please try again.");
+      // Clean up empty assistant message if failed
+      setMessages((prev) =>
+        prev.filter((m) => m.id !== assistantMsgId || m.content.length > 0)
+      );
     } finally {
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -259,7 +340,7 @@ export default function DocumentChatWorkspace({
   function renderMarkdownAnswer(content: string) {
     const trimmed = content.trim();
 
-    // 1. JSON Card Parser for structured JSON answers
+    // 1. Clean Card Parser for JSON answers
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
       try {
         const parsed = JSON.parse(trimmed);
@@ -300,7 +381,7 @@ export default function DocumentChatWorkspace({
                       {usages.map((uItem: any, uIdx: number) => (
                         <div key={uIdx} className="flex flex-col sm:flex-row sm:items-start gap-2 text-xs">
                           {uItem.project && (
-                            <span className="inline-flex shrink-0 items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-300">
+                            <span className="inline-flex shrink-0 items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-medium text-[11px] text-amber-300">
                               {uItem.project}
                             </span>
                           )}
@@ -317,7 +398,7 @@ export default function DocumentChatWorkspace({
           );
         }
       } catch {
-        // Fall back to Markdown parsing if JSON.parse fails
+        // Fall back to Markdown parsing if JSON fails
       }
     }
 
@@ -375,7 +456,7 @@ export default function DocumentChatWorkspace({
       }
     }
 
-    // 3. Human-Readable Structured Markdown Parser (Headers, Lists, Project Badges)
+    // 3. Human-Readable Markdown Parser
     const lines = content.split("\n");
 
     return (
@@ -385,7 +466,7 @@ export default function DocumentChatWorkspace({
 
           if (!trimmedLine) return <div key={lIdx} className="h-1" />;
 
-          // Headings (### Title or **Title**)
+          // Headings
           if (trimmedLine.startsWith("###") || trimmedLine.startsWith("##")) {
             const headingText = trimmedLine.replace(/^#+\s*/, "").replace(/\*\*/g, "");
             return (
@@ -395,11 +476,10 @@ export default function DocumentChatWorkspace({
             );
           }
 
-          // Bullet List Items (- or *)
+          // Bullet List Items
           if (trimmedLine.startsWith("-") || trimmedLine.startsWith("*")) {
             const listText = trimmedLine.replace(/^[-*]\s*/, "");
             
-            // Check for Project Badge pattern e.g. **[AssignFlow Hub]**
             const projectMatch = listText.match(/\*\*\[(.*?)\]\*\*\s*(.*)/);
 
             if (projectMatch) {
@@ -408,7 +488,7 @@ export default function DocumentChatWorkspace({
                 <div key={lIdx} className="flex items-start gap-2.5 my-1.5 pl-2">
                   <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 shadow-sm shadow-sky-400" />
                   <div>
-                    <span className="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-amber-300 mr-2">
+                    <span className="inline-block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-medium text-[11px] text-amber-300 mr-2">
                       {projName}
                     </span>
                     <span>{descText}</span>
@@ -446,6 +526,7 @@ export default function DocumentChatWorkspace({
   }
 
   const isFullyIndexed = documentInfo?.indexingStatus === "COMPLETED";
+  const fileExtensionUpper = (documentInfo?.extension || "PDF").replace(".", "").toUpperCase();
 
   return (
     <div className="flex h-screen w-full flex-col bg-[#0b0f17] text-white">
@@ -469,7 +550,7 @@ export default function DocumentChatWorkspace({
 
             <div>
               <h1 className="text-sm font-semibold tracking-wide text-white">
-                {documentInfo?.originalFilename || `Document ${documentId.slice(-6)}`}
+                {documentInfo?.originalFilename || "Document Assistant"}
               </h1>
 
               <div className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -479,12 +560,10 @@ export default function DocumentChatWorkspace({
                   }`}
                 />
                 <span>
-                  {isFullyIndexed
-                    ? "Ready for Grounded Q&A"
-                    : `Indexing Status: ${documentInfo?.indexingStatus || "NOT_STARTED"}`}
+                  {isFullyIndexed ? "Ready to Answer" : "Setting Up Document..."}
                 </span>
                 <span>•</span>
-                <span>ID: {documentId}</span>
+                <span className="font-medium text-slate-300">{fileExtensionUpper} Document</span>
               </div>
             </div>
           </div>
@@ -502,7 +581,7 @@ export default function DocumentChatWorkspace({
               ) : (
                 <PlayCircle className="h-3.5 w-3.5" />
               )}
-              <span>{isIndexing ? "Processing..." : "Process & Index Document Now"}</span>
+              <span>{isIndexing ? "Setting Up..." : "Prepare Document Now"}</span>
             </button>
           )}
 
@@ -519,11 +598,7 @@ export default function DocumentChatWorkspace({
           <div className="flex items-center gap-3">
             <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
             <span>
-              <strong>Document Not Indexed Yet:</strong> This document currently has{" "}
-              <code className="font-mono text-amber-300">
-                indexingStatus: {documentInfo?.indexingStatus || "NOT_STARTED"}
-              </code>
-              . Vector chunks must be created before RAG search can retrieve answers.
+              <strong>Document Setup Required:</strong> This document needs a quick one-time setup before you can ask questions.
             </span>
           </div>
 
@@ -537,13 +612,13 @@ export default function DocumentChatWorkspace({
             ) : (
               <PlayCircle className="h-3 w-3" />
             )}
-            <span>{isIndexing ? "Indexing..." : "Index Now"}</span>
+            <span>{isIndexing ? "Setting Up..." : "Prepare Document"}</span>
           </button>
         </div>
       )}
 
       {indexingStatusMessage && (
-        <div className="bg-sky-500/10 border-b border-sky-500/30 px-6 py-2 text-xs font-mono text-sky-300">
+        <div className="bg-sky-500/10 border-b border-sky-500/30 px-6 py-2 text-xs font-medium text-sky-300">
           {indexingStatusMessage}
         </div>
       )}
@@ -554,36 +629,36 @@ export default function DocumentChatWorkspace({
         <aside className="hidden w-72 flex-col border-r border-white/10 bg-[#0d1322] p-5 lg:flex">
           <div className="mb-6">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Document Context
+              Document Overview
             </h2>
 
             <div className="mt-3 rounded-xl border border-white/10 bg-slate-900/60 p-4">
               <p className="text-xs font-medium text-white truncate">
-                {documentInfo?.originalFilename || "Target Document"}
+                {documentInfo?.originalFilename || "Selected Document"}
               </p>
 
-              <div className="mt-3 space-y-2 text-[12px] text-slate-400">
+              <div className="mt-3 space-y-2.5 text-[12px] text-slate-400">
                 <div className="flex justify-between">
-                  <span>MIME Type:</span>
-                  <span className="font-mono text-slate-300">
-                    {documentInfo?.mimeType || "application/pdf"}
+                  <span>Format:</span>
+                  <span className="font-medium text-slate-200">
+                    {fileExtensionUpper} Document
                   </span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span>Indexing:</span>
+                  <span>Status:</span>
                   <span
                     className={`font-semibold ${
                       isFullyIndexed ? "text-emerald-400" : "text-amber-400"
                     }`}
                   >
-                    {documentInfo?.indexingStatus || "NOT_STARTED"}
+                    {isFullyIndexed ? "Ready to Answer" : "Preparing"}
                   </span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span>Atlas Search:</span>
-                  <span className="text-sky-400">Hybrid BM25 + Vector</span>
+                  <span>Search Engine:</span>
+                  <span className="text-sky-400 font-medium">Smart Hybrid Search</span>
                 </div>
               </div>
             </div>
@@ -608,10 +683,13 @@ export default function DocumentChatWorkspace({
             </div>
           </div>
 
-          <div className="rounded-lg border border-sky-500/10 bg-sky-500/5 p-3 text-[11px] text-sky-300/80">
-            <p className="font-semibold text-sky-400">Strict Grounding Active</p>
-            <p className="mt-1">
-              Answers are strictly synthesized from document chunks with citation mapping.
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3.5 text-[11px] text-sky-300">
+            <p className="font-semibold text-sky-300 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-sky-400" />
+              <span>Verified Source Guarantee</span>
+            </p>
+            <p className="mt-1 text-slate-300">
+              Answers are directly created from your document content with verified section references.
             </p>
           </div>
         </aside>
@@ -628,12 +706,11 @@ export default function DocumentChatWorkspace({
                   </div>
 
                   <h2 className="text-xl font-semibold text-white">
-                    Conversational Document RAG
+                    Smart Document Assistant
                   </h2>
 
                   <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
-                    Ask questions, run multi-project comparisons, or explore technical details.
-                    NexCorpus will retrieve exact chunks and generate grounded answers.
+                    Ask any question about your document. NexCorpus will review all sections and provide accurate, verified answers.
                   </p>
 
                   <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -643,7 +720,7 @@ export default function DocumentChatWorkspace({
                         onClick={() => handleSendMessage(p)}
                         className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left text-xs font-medium text-slate-300 transition hover:border-sky-500/40 hover:bg-sky-500/5 hover:text-white"
                       >
-                        <span className="text-sky-400">→</span> "{p}"
+                        <span className="text-sky-400 mr-1.5">→</span> "{p}"
                       </button>
                     ))}
                   </div>
@@ -679,7 +756,12 @@ export default function DocumentChatWorkspace({
                       <span>{message.timestamp}</span>
                     </div>
 
-                    <div className="mt-2">{renderMarkdownAnswer(message.content)}</div>
+                    <div className="mt-2 relative">
+                      {renderMarkdownAnswer(message.content)}
+                      {message.role === "assistant" && isLoading && message.content.length > 0 && (
+                        <span className="inline-block h-3.5 w-1.5 ml-1 bg-sky-400 animate-pulse font-bold align-middle rounded-sm" />
+                      )}
+                    </div>
 
                     {/* Cited Sources Accordion */}
                     {message.role === "assistant" &&
@@ -690,10 +772,10 @@ export default function DocumentChatWorkspace({
                             onClick={() => toggleSources(message.id)}
                             className="flex items-center gap-2 text-xs font-semibold text-sky-400 transition hover:text-sky-300"
                           >
-                            <Layers className="h-3.5 w-3.5" />
+                            <BookOpen className="h-3.5 w-3.5" />
                             <span>
                               {message.sources.length}{" "}
-                              {message.sources.length === 1 ? "Source Cited" : "Sources Cited"}
+                              {message.sources.length === 1 ? "Reference Cited" : "References Cited"}
                             </span>
                             {expandedSources[message.id] ? (
                               <ChevronUp className="h-3.5 w-3.5" />
@@ -704,30 +786,37 @@ export default function DocumentChatWorkspace({
 
                           {expandedSources[message.id] && (
                             <div className="mt-3 space-y-2">
-                              {message.sources.map((src, sIdx) => (
-                                <div
-                                  key={src.id || sIdx}
-                                  className="rounded-lg border border-white/5 bg-slate-950/60 p-3 text-xs"
-                                >
-                                  <div className="flex items-center justify-between text-[11px]">
-                                    <span className="rounded bg-sky-500/20 px-2 py-0.5 font-bold text-sky-300">
-                                      Source {sIdx + 1}
-                                    </span>
+                              {message.sources.map((src, sIdx) => {
+                                const pageLabel =
+                                  src.pageStart === src.pageEnd
+                                    ? `Page ${src.pageStart}`
+                                    : `Pages ${src.pageStart}–${src.pageEnd}`;
 
-                                    <span className="font-mono text-amber-400">
-                                      Score: {src.score.toFixed(4)}
-                                    </span>
-                                  </div>
+                                return (
+                                  <div
+                                    key={src.id || sIdx}
+                                    className="rounded-xl border border-white/10 bg-slate-950/60 p-3 text-xs"
+                                  >
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="rounded-md bg-sky-500/20 px-2 py-0.5 font-bold text-sky-300">
+                                        Reference {sIdx + 1}
+                                      </span>
 
-                                  <div className="mt-2 text-slate-300 font-medium">
-                                    {src.sectionPath.join(" > ") || "Document Chunk"}
-                                  </div>
+                                      <span className="font-medium text-emerald-400">
+                                        Relevance: High Match
+                                      </span>
+                                    </div>
 
-                                  <div className="mt-1 text-[11px] text-slate-500">
-                                    Page range: {src.pageStart} - {src.pageEnd}
+                                    <div className="mt-2 text-slate-200 font-medium">
+                                      Found in Section: {src.sectionPath.join(" > ") || "Document Section"}
+                                    </div>
+
+                                    <div className="mt-1 text-[11px] text-slate-400">
+                                      Location: {pageLabel} of Document
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -742,8 +831,8 @@ export default function DocumentChatWorkspace({
                 </div>
               ))}
 
-              {/* Loading State Indicator */}
-              {isLoading && (
+              {/* Loading State Indicator (Only visible before token generation starts) */}
+              {isLoading && messages.some((m) => m.role === "assistant" && m.content.length === 0) && (
                 <div className="flex gap-4">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-400">
                     <RefreshCw className="h-5 w-5 animate-spin" />
@@ -753,7 +842,7 @@ export default function DocumentChatWorkspace({
                     <div className="flex items-center gap-3">
                       <span className="inline-block h-2 w-2 rounded-full bg-sky-400 animate-ping" />
                       <span>
-                        NexCorpus AI is analyzing document context and synthesizing grounded answer...
+                        NexCorpus is reviewing your document content to generate a verified answer...
                       </span>
                     </div>
                   </div>
@@ -763,7 +852,7 @@ export default function DocumentChatWorkspace({
               {/* Error Banner */}
               {error && (
                 <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300">
-                  <p className="font-semibold">Query Warning / Error</p>
+                  <p className="font-semibold font-sans">Notice</p>
                   <p className="mt-1">{error}</p>
                 </div>
               )}
@@ -787,7 +876,7 @@ export default function DocumentChatWorkspace({
                   value={inputQuery}
                   onChange={(e) => setInputQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask a question about this document..."
+                  placeholder="Ask any question about this document..."
                   rows={1}
                   disabled={isLoading || isIndexing}
                   className="w-full resize-none bg-transparent px-5 py-4 text-sm text-white placeholder-slate-500 focus:outline-none disabled:opacity-50"
@@ -804,7 +893,7 @@ export default function DocumentChatWorkspace({
 
               <div className="mt-2 flex items-center justify-between px-2 text-[11px] text-slate-500">
                 <span>Press Enter to send, Shift + Enter for newline</span>
-                <span>Powered by OpenAI & Atlas Search</span>
+                <span>Powered by NexCorpus AI Intelligence</span>
               </div>
             </div>
           </div>

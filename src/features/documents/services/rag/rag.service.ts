@@ -27,6 +27,11 @@ export interface AskDocumentResult {
   }[];
 }
 
+export type StreamEvent =
+  | { type: "sources"; sources: AskDocumentResult["sources"] }
+  | { type: "token"; content: string }
+  | { type: "done"; fullAnswer: string };
+
 export class RagService {
   async askDocument({
     documentId,
@@ -54,7 +59,7 @@ export class RagService {
       return cachedResult;
     }
 
-    // 1. Rewrite the query and classify intent (Fast-Path Regex Bypass applied internally)
+    // 1. Rewrite the query and classify intent
     const rewrittenQueryResult =
       await openAIQueryRewriterProvider.rewriteQuery({
         query: currentQuery,
@@ -65,73 +70,7 @@ export class RagService {
     const intent = rewrittenQueryResult.intent;
 
     // 2. Intent-Aware Evidence Collection
-    let results: HybridSearchResult[] = [];
-
-    if (intent === "EXHAUSTIVE") {
-      const primaryRetrieval =
-        await documentRetrievalService.retrieve({
-          documentId,
-          query: targetQuery,
-          limit: 15,
-        });
-
-      const structuralPass =
-        await documentRetrievalService.retrieve({
-          documentId,
-          query:
-            "technical skills projects authentication security cloud database stack",
-          limit: 10,
-        });
-
-      const resultMap = new Map<string, HybridSearchResult>();
-
-      [
-        ...primaryRetrieval.results,
-        ...structuralPass.results,
-      ].forEach((item) => {
-        resultMap.set(item.id, item);
-      });
-
-      results = Array.from(resultMap.values());
-    } else if (
-      intent === "COMPARISON" ||
-      intent === "SET_DIFFERENCE"
-    ) {
-      const primaryPass =
-        await documentRetrievalService.retrieve({
-          documentId,
-          query: targetQuery,
-          limit: 10,
-        });
-
-      const structuralPass =
-        await documentRetrievalService.retrieve({
-          documentId,
-          query:
-            "technical skills projects stack architecture authentication security",
-          limit: 10,
-        });
-
-      const resultMap = new Map<string, HybridSearchResult>();
-
-      [
-        ...primaryPass.results,
-        ...structuralPass.results,
-      ].forEach((item) => {
-        resultMap.set(item.id, item);
-      });
-
-      results = Array.from(resultMap.values());
-    } else {
-      const primaryRetrieval =
-        await documentRetrievalService.retrieve({
-          documentId,
-          query: targetQuery,
-          limit: 5,
-        });
-
-      results = primaryRetrieval.results;
-    }
+    const results = await this.collectEvidence(documentId, targetQuery, intent);
 
     if (!results.length) {
       const emptyResult: AskDocumentResult = {
@@ -189,6 +128,142 @@ export class RagService {
     ragCacheService.set(documentId, currentQuery, conversation, finalResult);
 
     return finalResult;
+  }
+
+  async *askDocumentStream({
+    documentId,
+    query,
+    conversation = [],
+  }: AskDocumentInput): AsyncIterable<StreamEvent> {
+    if (!documentId) throw new Error("Document ID is required");
+    if (!query?.trim()) throw new Error("Query is required");
+
+    const currentQuery = query.trim();
+
+    // Cache Check
+    const cachedResult = ragCacheService.get(documentId, currentQuery, conversation);
+    if (cachedResult) {
+      yield { type: "sources", sources: cachedResult.sources };
+      yield { type: "token", content: cachedResult.answer };
+      yield { type: "done", fullAnswer: cachedResult.answer };
+      return;
+    }
+
+    // 1. Rewrite Query
+    const rewrittenQueryResult =
+      await openAIQueryRewriterProvider.rewriteQuery({
+        query: currentQuery,
+        conversation,
+      });
+
+    const targetQuery = rewrittenQueryResult.query;
+    const intent = rewrittenQueryResult.intent;
+
+    // 2. Collect Evidence
+    const results = await this.collectEvidence(documentId, targetQuery, intent);
+
+    if (!results.length) {
+      const emptyAnswer = "I couldn't find relevant information in the document.";
+      yield { type: "sources", sources: [] };
+      yield { type: "token", content: emptyAnswer };
+      yield { type: "done", fullAnswer: emptyAnswer };
+      return;
+    }
+
+    // 3. Assemble Context & Unique Sources
+    const assembledContext = contextAssemblerService.assembleContext(results);
+    const uniqueSources = assembledContext.chunks.map((resultChunk) => ({
+      id: resultChunk.id,
+      sectionPath: resultChunk.sectionPath,
+      pageStart: resultChunk.pageStart,
+      pageEnd: resultChunk.pageEnd,
+      score: resultChunk.score,
+    }));
+
+    yield { type: "sources", sources: uniqueSources };
+
+    // 4. Stream OpenAI Tokens
+    let fullAnswer = "";
+
+    for await (const token of openAIGenerationProvider.generateAnswerStream({
+      query: targetQuery,
+      context: assembledContext.formattedContext,
+    })) {
+      fullAnswer += token;
+      yield { type: "token", content: token };
+    }
+
+    // Store completed stream in Cache
+    const finalResult: AskDocumentResult = {
+      answer: fullAnswer.trim(),
+      sources: uniqueSources,
+    };
+    ragCacheService.set(documentId, currentQuery, conversation, finalResult);
+
+    yield { type: "done", fullAnswer: fullAnswer.trim() };
+  }
+
+  private async collectEvidence(
+    documentId: string,
+    targetQuery: string,
+    intent: string
+  ): Promise<HybridSearchResult[]> {
+    if (intent === "EXHAUSTIVE") {
+      const primaryRetrieval =
+        await documentRetrievalService.retrieve({
+          documentId,
+          query: targetQuery,
+          limit: 15,
+        });
+
+      const structuralPass =
+        await documentRetrievalService.retrieve({
+          documentId,
+          query:
+            "technical skills projects authentication security cloud database stack",
+          limit: 10,
+        });
+
+      const resultMap = new Map<string, HybridSearchResult>();
+      [...primaryRetrieval.results, ...structuralPass.results].forEach((item) => {
+        resultMap.set(item.id, item);
+      });
+
+      return Array.from(resultMap.values());
+    }
+
+    if (intent === "COMPARISON" || intent === "SET_DIFFERENCE") {
+      const primaryPass =
+        await documentRetrievalService.retrieve({
+          documentId,
+          query: targetQuery,
+          limit: 10,
+        });
+
+      const structuralPass =
+        await documentRetrievalService.retrieve({
+          documentId,
+          query:
+            "technical skills projects stack architecture authentication security",
+          limit: 10,
+        });
+
+      const resultMap = new Map<string, HybridSearchResult>();
+      [...primaryPass.results, ...structuralPass.results].forEach((item) => {
+        resultMap.set(item.id, item);
+      });
+
+      return Array.from(resultMap.values());
+    }
+
+    const primaryRetrieval =
+      await documentRetrievalService.retrieve({
+        documentId,
+        query: targetQuery,
+        limit: 5,
+      });
+
+    return primaryRetrieval.results;
   }
 }
 

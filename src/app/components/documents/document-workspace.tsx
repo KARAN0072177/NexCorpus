@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DocumentList from "./document-list";
-import { UploadCloud, FileText, Sparkles, CheckCircle2, ShieldCheck, Database, User, RefreshCw } from "lucide-react";
+import { UploadCloud, FileText, Sparkles, ShieldCheck, Search, User, RefreshCw, CheckCircle2 } from "lucide-react";
 
 interface DocumentWorkspaceProps {
   username: string;
@@ -81,9 +81,9 @@ export default function DocumentWorkspace({
 
     try {
       /*
-       * STEP 1: Create MongoDB Document Record
+       * STEP 1: Create Document Record
        */
-      setUploadMessage("Initializing document metadata record...");
+      setUploadMessage("Reading document details...");
 
       const createResponse = await fetch("/api/documents", {
         method: "POST",
@@ -99,16 +99,16 @@ export default function DocumentWorkspace({
       const createData = await createResponse.json();
 
       if (!createResponse.ok) {
-        throw new Error(createData.error ?? "Unable to create document");
+        throw new Error(createData.error ?? "Unable to start file upload");
       }
 
       const documentId = createData.document.id;
 
       /*
-       * STEP 2: Obtain Presigned S3 Upload URL
+       * STEP 2: Obtain Secure Upload Link
        */
       setUploadProgressStep(2);
-      setUploadMessage("Generating secure private S3 presigned URL...");
+      setUploadMessage("Preparing secure upload link...");
 
       const presignedResponse = await fetch(
         `/api/documents/${documentId}/upload`,
@@ -123,15 +123,15 @@ export default function DocumentWorkspace({
 
       if (!presignedResponse.ok) {
         throw new Error(
-          presignedData.error ?? "Unable to prepare file upload"
+          presignedData.error ?? "Unable to prepare upload"
         );
       }
 
       /*
-       * STEP 3: Upload Directly to S3 Storage
+       * STEP 3: Upload Directly to Storage
        */
       setUploadProgressStep(3);
-      setUploadMessage("Uploading document payload directly to AWS S3...");
+      setUploadMessage("Saving document securely...");
 
       const s3Response = await fetch(presignedData.uploadUrl, {
         method: "PUT",
@@ -140,14 +140,14 @@ export default function DocumentWorkspace({
       });
 
       if (!s3Response.ok) {
-        throw new Error("S3 upload failed");
+        throw new Error("Secure upload failed. Please try again.");
       }
 
       /*
-       * STEP 4: Complete Upload & Trigger Processing Pipeline
+       * STEP 4: Complete Upload & Auto Indexing
        */
       setUploadProgressStep(4);
-      setUploadMessage("Verifying storage & triggering chunk indexing pipeline...");
+      setUploadMessage("Analyzing document text & building search index...");
 
       const completeResponse = await fetch(
         `/api/documents/${documentId}/upload/complete`,
@@ -158,12 +158,12 @@ export default function DocumentWorkspace({
 
       if (!completeResponse.ok) {
         throw new Error(
-          completeData.error ?? "Unable to verify uploaded file"
+          completeData.error ?? "Unable to process uploaded file"
         );
       }
 
       setUploadProgressStep(5);
-      setUploadMessage("Upload complete! Document indexed and ready for Q&A.");
+      setUploadMessage("Upload complete! Document is ready to answer questions.");
 
       await loadDocuments();
 
@@ -177,7 +177,7 @@ export default function DocumentWorkspace({
         error instanceof Error ? error.message : "Upload failed."
       );
       setUploadProgressStep(0);
-    } fontally: {
+    } finally {
       setIsUploading(false);
     }
   }
@@ -231,7 +231,7 @@ export default function DocumentWorkspace({
                 NexCorpus
               </p>
               <p className="text-[11px] text-slate-400">
-                Conversational Document Knowledge Base & RAG V1
+                Smart Document Assistant
               </p>
             </div>
           </div>
@@ -258,29 +258,30 @@ export default function DocumentWorkspace({
         {/* Banner Section */}
         <div className="mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6 rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900 via-[#0f172a] to-sky-950/40 p-8 shadow-2xl">
           <div>
-            <span className="inline-block rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold text-sky-400">
-              RAG V1 Pipeline Active
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold text-sky-400">
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>AI Intelligence Active</span>
             </span>
 
             <h1 className="mt-3 text-3xl font-bold tracking-tight text-white">
-              Document Knowledge Base
+              Smart Document Workspace
             </h1>
 
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
-              Upload PDF documents, resumes, or engineering specifications. NexCorpus chunks,
-              indexes embeddings into MongoDB Atlas, and provides strictly grounded conversational Q&A.
+              Upload any PDF, document, resume, or report. NexCorpus automatically reads your files,
+              understands their structure, and lets you ask questions with verified source answers.
             </p>
           </div>
 
-          <div className="flex items-center gap-6 text-xs text-slate-400">
+          <div className="flex items-center gap-6 text-xs text-slate-300">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-emerald-400" />
-              <span>Private S3 Storage</span>
+              <span>Secure Private Cloud</span>
             </div>
 
             <div className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-sky-400" />
-              <span>Atlas Vector Search</span>
+              <Search className="h-4 w-4 text-sky-400" />
+              <span>Smart Search Engine</span>
             </div>
           </div>
         </div>
@@ -305,13 +306,13 @@ export default function DocumentWorkspace({
               </div>
 
               <h2 className="text-lg font-semibold text-white">
-                {isUploading ? "Uploading & Processing Document" : "Upload Document to Corpus"}
+                {isUploading ? "Processing Document..." : "Upload Your Document"}
               </h2>
 
               <p className="mt-2 text-xs leading-relaxed text-slate-400">
                 {isUploading
                   ? uploadMessage
-                  : "Drag and drop your PDF or document here, or browse files from your computer."}
+                  : "Drag and drop your PDF or document here, or choose a file from your device."}
               </p>
 
               {/* Upload Stepper Progress */}
@@ -324,8 +325,8 @@ export default function DocumentWorkspace({
                     />
                   </div>
 
-                  <p className="text-[11px] font-mono text-sky-400">
-                    Step {uploadProgressStep} of 5
+                  <p className="text-[11px] font-medium text-sky-400">
+                    Step {uploadProgressStep} of 4 — {uploadMessage}
                   </p>
                 </div>
               )}
@@ -359,10 +360,10 @@ export default function DocumentWorkspace({
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold tracking-tight text-white">
-                Your Documents
+                Your Uploaded Documents
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Select a document to open conversational chat Q&A
+                Click any document to start asking questions or generating summaries
               </p>
             </div>
 

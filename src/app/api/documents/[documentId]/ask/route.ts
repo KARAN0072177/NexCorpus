@@ -1,7 +1,4 @@
-// src/app/api/documents/[documentId]/ask/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
-
 import { connectToDatabase } from "@/lib/db/mongodb";
 import { requireApiUser } from "@/lib/auth/require-api-user";
 import { ragService } from "@/features/documents/services/rag/rag.service";
@@ -22,141 +19,100 @@ export async function POST(
   context: RouteContext
 ) {
   try {
-    /*
-     * --------------------------------------------------
-     * Database Connection & Authentication
-     * --------------------------------------------------
-     */
-
     await connectToDatabase();
 
-    const { user, response } =
-      await requireApiUser();
-
+    const { user, response } = await requireApiUser();
     if (response) {
       return response;
     }
 
-    /*
-     * --------------------------------------------------
-     * Route params & Body
-     * --------------------------------------------------
-     */
-
-    const { documentId } =
-      await context.params;
-
-    const body =
-      await request.json().catch(() => ({}));
-
-    const {
-      query,
-      conversation,
-    } = body;
+    const { documentId } = await context.params;
+    const body = await request.json().catch(() => ({}));
+    const { query, conversation, stream = true } = body;
 
     if (!documentId) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Document ID is required",
-        },
+        { success: false, error: "Document ID is required" },
         { status: 400 }
       );
     }
 
-    if (
-      !query ||
-      typeof query !== "string" ||
-      !query.trim()
-    ) {
+    if (!query || typeof query !== "string" || !query.trim()) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Query is required",
-        },
+        { success: false, error: "Query is required" },
         { status: 400 }
       );
     }
+
+    const normalizedConversation: ConversationMessage[] = Array.isArray(conversation)
+      ? conversation.map((message) => ({
+          role: message?.role,
+          content: typeof message?.content === "string" ? message.content.trim() : "",
+        }))
+      : [];
 
     /*
      * --------------------------------------------------
-     * Validate Conversation
+     * Non-streaming fallback option
      * --------------------------------------------------
      */
-
-    if (
-      conversation !== undefined &&
-      !Array.isArray(conversation)
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Conversation must be an array",
-        },
-        { status: 400 }
-      );
-    }
-
-    const normalizedConversation: ConversationMessage[] =
-      Array.isArray(conversation)
-        ? conversation.map(
-            (message) => ({
-              role: message?.role,
-              content:
-                typeof message?.content ===
-                "string"
-                  ? message.content.trim()
-                  : "",
-            })
-          )
-        : [];
-
-    const invalidMessage =
-      normalizedConversation.some(
-        (message) =>
-          !["user", "assistant"].includes(
-            message.role
-          ) ||
-          !message.content
-      );
-
-    if (invalidMessage) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Each conversation message must contain a valid role and content",
-        },
-        { status: 400 }
-      );
-    }
-
-    /*
-     * --------------------------------------------------
-     * Execute RAG Question Answering
-     * --------------------------------------------------
-     */
-
-    const result =
-      await ragService.askDocument({
+    if (stream === false) {
+      const result = await ragService.askDocument({
         documentId,
         query: query.trim(),
-        conversation:
-          normalizedConversation,
+        conversation: normalizedConversation,
       });
 
-    return NextResponse.json({
-      success: true,
-      message:
-        "Question answered successfully",
-      data: result,
+      return NextResponse.json({
+        success: true,
+        message: "Question answered successfully",
+        data: result,
+      });
+    }
+
+    /*
+     * --------------------------------------------------
+     * Server-Sent Events (SSE) Streaming Response
+     * --------------------------------------------------
+     */
+    const encoder = new TextEncoder();
+    const eventStream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of ragService.askDocumentStream({
+            documentId,
+            query: query.trim(),
+            conversation: normalizedConversation,
+          })) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+            );
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch (err: any) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "error",
+                error: err.message || "Streaming failed",
+              })}\n\n`
+            )
+          );
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(eventStream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+      },
     });
   } catch (error) {
-    console.error(
-      "Document question error:",
-      error
-    );
+    console.error("Document question error:", error);
 
     return NextResponse.json(
       {
