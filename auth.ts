@@ -39,6 +39,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const existingUser = await findUserByGoogleId(googleId);
 
       if (existingUser) {
+        let hasChanges = false;
+        if (user.image && existingUser.image !== user.image) {
+          existingUser.image = user.image;
+          hasChanges = true;
+        }
+        if (user.name && existingUser.name !== user.name) {
+          existingUser.name = user.name;
+          hasChanges = true;
+        }
+        if (hasChanges) {
+          await existingUser.save();
+        }
         return true;
       }
 
@@ -62,14 +74,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true;
     },
 
-    async jwt({ token }) {
-      if (token.email && !token.userId) {
-        const user = await findUserByEmail(token.email);
+    async jwt({ token, user }) {
+      if (user) {
+        if (user.image) token.picture = user.image;
+        if (user.name) token.name = user.name;
+        if (user.email) token.email = user.email;
+      }
 
-        if (user) {
-          token.userId = user._id.toString();
-          token.username = user.username ?? null;
-          token.email = user.email;
+      if (token.email) {
+        const dbUser = await findUserByEmail(token.email);
+
+        if (dbUser) {
+          token.userId = dbUser._id.toString();
+          token.username = dbUser.username ?? null;
+          token.email = dbUser.email;
+          if (dbUser.image) token.picture = dbUser.image;
+          if (dbUser.name) token.name = dbUser.name;
         }
       }
 
@@ -77,9 +97,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
 
     async session({ session, token }) {
-      if (session.user && token.userId) {
-        session.user.id = token.userId;
-        session.user.username = token.username ?? null;
+      if (session.user) {
+        if (token.userId) session.user.id = token.userId as string;
+        if (token.username) session.user.username = token.username as string;
+        if (token.email) session.user.email = token.email as string;
+        if (token.picture) session.user.image = token.picture as string;
+        if (token.name) session.user.name = token.name as string;
       }
 
       return session;

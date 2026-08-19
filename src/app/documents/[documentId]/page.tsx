@@ -17,6 +17,13 @@ export default async function DocumentChatPage({
     <DocumentChatWorkspace
       documentId={documentId}
       username={user.username ?? "user"}
+      user={{
+        id: user._id.toString(),
+        username: user.username ?? "user",
+        email: user.email,
+        name: user.name ?? null,
+        image: user.image ?? null,
+      }}
     />
   );
 }

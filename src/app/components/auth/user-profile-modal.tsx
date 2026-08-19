@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
   X,
-  User,
   Mail,
   Eye,
   EyeOff,
@@ -12,31 +11,70 @@ import {
   ShieldCheck,
   Zap,
   Clock,
+  Loader2,
 } from "lucide-react";
+import UserAvatar from "./user-avatar";
+
+export interface UserProfileData {
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  image?: string | null;
+  username?: string | null;
+  provider?: string;
+}
 
 interface UserProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  user: {
-    name?: string | null;
-    email?: string | null;
-    image?: string | null;
-    username?: string | null;
-    provider?: string;
-  };
+  user?: UserProfileData;
 }
 
 export default function UserProfileModal({
   isOpen,
   onClose,
-  user,
+  user: initialUser,
 }: UserProfileModalProps) {
   const [showEmail, setShowEmail] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [profileUser, setProfileUser] = useState<UserProfileData | null>(
+    initialUser || null
+  );
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+
+  // Sync with initialUser prop changes
+  useEffect(() => {
+    if (initialUser) {
+      setProfileUser((prev) => ({ ...prev, ...initialUser }));
+    }
+  }, [initialUser]);
+
+  // Fetch real user details from /api/auth/me if email or image is missing
+  useEffect(() => {
+    if (isOpen && (!profileUser?.email || !profileUser?.image)) {
+      setIsLoadingProfile(true);
+      fetch("/api/auth/me", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.authenticated && data.user) {
+            setProfileUser((prev) => ({
+              ...prev,
+              ...data.user,
+            }));
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load user profile:", err);
+        })
+        .finally(() => {
+          setIsLoadingProfile(false);
+        });
+    }
+  }, [isOpen, profileUser?.email, profileUser?.image]);
 
   if (!isOpen) return null;
 
-  const rawEmail = user.email || "user@nexcorpus.ai";
+  const rawEmail = profileUser?.email || "user@nexcorpus.ai";
 
   function censorEmail(email: string) {
     const [name, domain] = email.split("@");
@@ -66,6 +104,7 @@ export default function UserProfileModal({
         {/* Close Button */}
         <button
           onClick={onClose}
+          aria-label="Close profile modal"
           className="absolute right-4 top-4 rounded-xl border border-white/10 bg-white/5 p-2 text-slate-400 transition hover:bg-white/10 hover:text-white"
         >
           <X className="h-4 w-4" />
@@ -73,27 +112,26 @@ export default function UserProfileModal({
 
         {/* User Header */}
         <div className="flex flex-col items-center text-center pt-2 pb-6 border-b border-white/10">
-          <div className="relative mb-3 flex h-20 w-20 items-center justify-center rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/20 to-indigo-500/20 shadow-xl shadow-sky-500/10">
-            {user.image ? (
-              <img
-                src={user.image}
-                alt={user.name || "User Avatar"}
-                className="h-full w-full rounded-2xl object-cover"
-              />
-            ) : (
-              <User className="h-10 w-10 text-sky-400" />
-            )}
-            <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 border-2 border-slate-900 text-slate-950">
+          <div className="relative mb-3 flex items-center justify-center">
+            <UserAvatar
+              image={profileUser?.image}
+              email={profileUser?.email}
+              name={profileUser?.name}
+              username={profileUser?.username}
+              size="xl"
+              className="border-2 border-sky-500/40 shadow-xl shadow-sky-500/10"
+            />
+            <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 border-2 border-slate-900 text-slate-950 shadow">
               <CheckIcon className="h-3.5 w-3.5" />
             </span>
           </div>
 
           <h3 className="text-xl font-bold tracking-tight text-white">
-            {user.name || `@${user.username || "User"}`}
+            {profileUser?.name || `@${profileUser?.username || "User"}`}
           </h3>
-          {user.username && (
+          {profileUser?.username && (
             <p className="text-xs text-sky-400 font-mono mt-0.5">
-              @{user.username}
+              @{profileUser.username}
             </p>
           )}
         </div>
@@ -108,6 +146,7 @@ export default function UserProfileModal({
                 Email Address
               </span>
               <button
+                type="button"
                 onClick={() => setShowEmail(!showEmail)}
                 className="flex items-center gap-1 font-semibold text-sky-400 hover:text-sky-300 transition"
               >
@@ -124,9 +163,17 @@ export default function UserProfileModal({
                 )}
               </button>
             </div>
-            <p className="font-mono text-sm text-slate-200 font-medium tracking-wide">
-              {displayedEmail}
-            </p>
+
+            {isLoadingProfile && !profileUser?.email ? (
+              <div className="flex items-center gap-2 py-1 text-xs text-slate-400">
+                <Loader2 className="h-3 w-3 animate-spin text-sky-400" />
+                <span>Loading email...</span>
+              </div>
+            ) : (
+              <p className="font-mono text-sm text-slate-200 font-medium tracking-wide">
+                {displayedEmail}
+              </p>
+            )}
           </div>
 
           {/* Login Method Badge */}
@@ -135,7 +182,10 @@ export default function UserProfileModal({
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               Sign-In Method
             </span>
-              <GoogleIcon className="h-5.5 w-5.5" />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 font-semibold text-sky-300">
+              <GoogleIcon className="h-3.5 w-3.5" />
+              Google Auth
+            </span>
           </div>
 
           {/* Security Policy Info */}
@@ -154,11 +204,16 @@ export default function UserProfileModal({
 
         {/* Logout Button */}
         <button
+          type="button"
           onClick={handleLogout}
           disabled={isLoggingOut}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 py-3 text-xs font-semibold text-rose-300 transition hover:border-rose-400 hover:bg-rose-500 hover:text-white disabled:opacity-50"
         >
-          <LogOut className="h-4 w-4" />
+          {isLoggingOut ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <LogOut className="h-4 w-4" />
+          )}
           <span>{isLoggingOut ? "Ending Session..." : "Log Out of NexCorpus"}</span>
         </button>
       </div>

@@ -20,7 +20,8 @@ import {
   Loader2,
 } from "lucide-react";
 import SidebarSkeleton from "./sidebar-skeleton";
-import UserProfileModal from "@/app/components/auth/user-profile-modal";
+import UserProfileModal, { UserProfileData } from "@/app/components/auth/user-profile-modal";
+import UserAvatar from "@/app/components/auth/user-avatar";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -32,21 +33,25 @@ export interface CitedSource {
   sectionPath: string[];
   pageStart: number;
   pageEnd: number;
-  score: number;
+  snippetText: string;
+  similarityScore: number;
+  rank: number;
 }
 
-export interface ChatMessageItem extends ConversationMessage {
+export interface ChatMessageItem {
   id: string;
-  timestamp: string;
+  role: "user" | "assistant";
+  content: string;
   sources?: CitedSource[];
+  timestamp: string;
 }
 
 interface DocumentInfo {
   id: string;
   originalFilename: string;
-  size: number;
   mimeType: string;
   extension: string;
+  size: number;
   storageStatus: string;
   securityStatus: string;
   processingStatus: string;
@@ -56,11 +61,13 @@ interface DocumentInfo {
 interface DocumentChatWorkspaceProps {
   documentId: string;
   username?: string;
+  user?: UserProfileData;
 }
 
 export default function DocumentChatWorkspace({
   documentId,
   username = "User",
+  user,
 }: DocumentChatWorkspaceProps) {
   const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
   const [isDocumentLoading, setIsDocumentLoading] = useState(true);
@@ -601,9 +608,15 @@ export default function DocumentChatWorkspace({
 
           <button
             onClick={() => setIsProfileOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
+            className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 py-1 pl-1.5 pr-3 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
           >
-            <User className="h-3.5 w-3.5 text-sky-400" />
+            <UserAvatar
+              image={user?.image}
+              email={user?.email}
+              name={user?.name}
+              username={username}
+              size="xs"
+            />
             <span className="font-medium">@{username}</span>
           </button>
         </div>
@@ -613,7 +626,7 @@ export default function DocumentChatWorkspace({
       <UserProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        user={{ username }}
+        user={user ?? { username }}
       />
 
       {/* Indexing Warning Banner */}

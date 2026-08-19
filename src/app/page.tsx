@@ -7,6 +7,13 @@ export default async function HomePage() {
   return (
     <DocumentWorkspace
       username={user.username ?? "user"}
+      user={{
+        id: user._id.toString(),
+        username: user.username ?? "user",
+        email: user.email,
+        name: user.name ?? null,
+        image: user.image ?? null,
+      }}
     />
   );
 }

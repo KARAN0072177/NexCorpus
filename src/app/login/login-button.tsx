@@ -2,60 +2,62 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { Loader2 } from "lucide-react";
 
 export default function LoginButton() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleGoogleSignIn() {
     try {
       setLoading(true);
+      setError(null);
 
       await signIn("google", {
         callbackUrl: "/",
       });
-    } catch (error) {
-      console.error("Google sign-in failed:", error);
+    } catch {
+      setError("Sign-in failed. Please try again.");
       setLoading(false);
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleGoogleSignIn}
-      disabled={loading}
-      className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      {loading ? (
-        <span>Signing you in...</span>
-      ) : (
-        <>
-          <svg
-            viewBox="0 0 24 24"
-            className="h-5 w-5"
-            aria-hidden="true"
-          >
-            <path
-              fill="#4285F4"
-              d="M21.35 12.27c0-.72-.06-1.41-.18-2.07H12v3.92h5.22a4.46 4.46 0 0 1-1.94 2.93v2.45h3.14c1.84-1.69 2.93-4.18 2.93-7.23Z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 21.66c2.63 0 4.84-.87 6.45-2.36l-3.14-2.45c-.87.58-1.98.93-3.31.93-2.54 0-4.69-1.72-5.46-4.03H3.3v2.53A9.74 9.74 0 0 0 12 21.66Z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M6.54 13.75A5.85 5.85 0 0 1 6.23 12c0-.61.11-1.2.31-1.75V7.72H3.3A9.74 9.74 0 0 0 2.25 12c0 1.57.38 3.05 1.05 4.28l3.24-2.53Z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 6.22c1.43 0 2.71.49 3.72 1.46l2.79-2.79C16.84 3.2 14.63 2.34 12 2.34a9.74 9.74 0 0 0-8.7 5.38l3.24 2.53C7.31 7.94 9.46 6.22 12 6.22Z"
-            />
-          </svg>
+    <div className="w-full space-y-3">
+      <button
+        type="button"
+        id="google-signin-btn"
+        onClick={handleGoogleSignIn}
+        disabled={loading}
+        className="group relative flex w-full items-center gap-3 rounded-lg border border-[#e2e4e9] bg-white px-4 py-2.5 text-sm font-medium text-[#0d0d0d] shadow-sm transition-all duration-150 hover:bg-[#f5f5f5] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin text-[#666]" />
+            <span className="text-[#444]">Signing you in…</span>
+          </>
+        ) : (
+          <>
+            {/* Official Google SVG */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 48 48"
+              className="h-5 w-5 shrink-0"
+              aria-hidden="true"
+            >
+              <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.8 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.3 6.5 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z" />
+              <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.6 16 19 13 24 13c3.1 0 5.8 1.1 7.9 3l5.7-5.7C34.3 6.5 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+              <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5L31.9 33c-2 1.5-4.6 2-7.9 2-5.2 0-9.6-3.1-11.3-7.6l-6.5 5C9.6 39.4 16.4 44 24 44z" />
+              <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.1 5.5l.1-.1 5.7 4.7c-.4.4 6.9-5.1 6.9-14.1 0-1.3-.1-2.6-.4-3.9z" />
+            </svg>
+            <span>Continue with Google</span>
+          </>
+        )}
+      </button>
 
-          <span>Continue with Google</span>
-        </>
+      {error && (
+        <p className="text-center text-xs text-red-400">{error}</p>
       )}
-    </button>
+    </div>
   );
 }

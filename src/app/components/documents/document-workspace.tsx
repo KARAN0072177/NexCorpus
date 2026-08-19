@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import DocumentList from "./document-list";
-import UserProfileModal from "@/app/components/auth/user-profile-modal";
+import UserProfileModal, { UserProfileData } from "@/app/components/auth/user-profile-modal";
+import UserAvatar from "@/app/components/auth/user-avatar";
 import { UploadCloud, FileText, Sparkles, ShieldCheck, Search, User, RefreshCw, Loader2 } from "lucide-react";
 
 interface DocumentWorkspaceProps {
   username: string;
+  user?: UserProfileData;
 }
 
 interface DocumentItem {
@@ -42,6 +44,7 @@ interface DocumentItem {
 
 export default function DocumentWorkspace({
   username,
+  user,
 }: DocumentWorkspaceProps) {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
@@ -86,75 +89,39 @@ export default function DocumentWorkspace({
     setUploadProgressStep(1);
 
     try {
-      /*
-       * STEP 1: Create Document Record
-       */
-      setUploadMessage("Reading document details...");
-
-      const createResponse = await fetch("/api/documents", {
+      setUploadMessage("Initiating secure upload...");
+      const initResponse = await fetch("/api/documents/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          originalFilename: file.name,
-          mimeType: file.type,
-          extension: getExtension(file.name),
+          filename: file.name,
+          contentType: file.type || "application/pdf",
           size: file.size,
         }),
       });
 
-      const createData = await createResponse.json();
+      const initData = await initResponse.json();
 
-      if (!createResponse.ok) {
-        throw new Error(createData.error ?? "Unable to start file upload");
+      if (!initResponse.ok) {
+        throw new Error(initData.error ?? "Upload initialization failed");
       }
 
-      const documentId = createData.document.id;
+      const { uploadUrl, documentId } = initData.data;
 
-      /*
-       * STEP 2: Obtain Secure Upload Link
-       */
       setUploadProgressStep(2);
-      setUploadMessage("Preparing secure upload link...");
-
-      const presignedResponse = await fetch(
-        `/api/documents/${documentId}/upload`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contentType: file.type }),
-        }
-      );
-
-      const presignedData = await presignedResponse.json();
-
-      if (!presignedResponse.ok) {
-        throw new Error(
-          presignedData.error ?? "Unable to prepare upload"
-        );
-      }
-
-      /*
-       * STEP 3: Upload Directly to Storage
-       */
-      setUploadProgressStep(3);
-      setUploadMessage("Saving document securely...");
-
-      const s3Response = await fetch(presignedData.uploadUrl, {
+      setUploadMessage("Uploading file to secure storage...");
+      const s3UploadResponse = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
+        headers: { "Content-Type": file.type || "application/pdf" },
         body: file,
       });
 
-      if (!s3Response.ok) {
-        throw new Error("Secure upload failed. Please try again.");
+      if (!s3UploadResponse.ok) {
+        throw new Error("Failed to upload file to storage");
       }
 
-      /*
-       * STEP 4: Complete Upload & Auto Indexing
-       */
-      setUploadProgressStep(4);
-      setUploadMessage("Analyzing document text & building search index...");
-
+      setUploadProgressStep(3);
+      setUploadMessage("Scanning file safety and verifying content...");
       const completeResponse = await fetch(
         `/api/documents/${documentId}/upload/complete`,
         { method: "POST" }
@@ -163,35 +130,24 @@ export default function DocumentWorkspace({
       const completeData = await completeResponse.json();
 
       if (!completeResponse.ok) {
-        throw new Error(
-          completeData.error ?? "Unable to process uploaded file"
-        );
+        throw new Error(completeData.error ?? "Upload completion failed");
       }
 
-      setUploadProgressStep(5);
-      setUploadMessage("Upload complete! Document is ready to answer questions.");
-
+      setUploadProgressStep(4);
+      setUploadMessage("Document uploaded successfully! Analyzing content...");
       await loadDocuments();
 
       setTimeout(() => {
+        setIsUploading(false);
         setUploadMessage("");
         setUploadProgressStep(0);
-      }, 3000);
-    } catch (error) {
-      console.error("Upload failed:", error);
-      setError(
-        error instanceof Error ? error.message : "Upload failed."
-      );
-      setUploadProgressStep(0);
-    } finally {
+      }, 2000);
+    } catch (error: any) {
+      console.error("Upload process failed:", error);
+      setError(error.message ?? "An error occurred during upload");
       setIsUploading(false);
+      setUploadProgressStep(0);
     }
-  }
-
-  function getExtension(filename: string) {
-    const lastDot = filename.lastIndexOf(".");
-    if (lastDot === -1) return "";
-    return filename.slice(lastDot).toLowerCase();
   }
 
   function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
@@ -223,20 +179,20 @@ export default function DocumentWorkspace({
   }
 
   return (
-    <main className="min-h-screen bg-[#0b0f17] text-white">
-      {/* Header Bar */}
-      <header className="border-b border-white/10 bg-[#0f172a]/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+    <main className="min-h-screen bg-[#070a11] text-slate-100 antialiased selection:bg-sky-500 selection:text-white">
+      {/* Top Application Header */}
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#070a11]/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-400">
-              <Sparkles className="h-5 w-5" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-sky-500/20">
+              <FileText className="h-5 w-5 text-white" />
             </div>
 
             <div>
-              <p className="text-base font-bold tracking-tight text-white">
+              <span className="text-base font-bold tracking-tight text-white">
                 NexCorpus
-              </p>
-              <p className="text-[11px] text-slate-400">
+              </span>
+              <p className="text-[11px] font-medium text-slate-400">
                 Smart Document Assistant
               </p>
             </div>
@@ -253,9 +209,15 @@ export default function DocumentWorkspace({
 
             <button
               onClick={() => setIsProfileOpen(true)}
-              className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3.5 py-1.5 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
+              className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 py-1 pl-1.5 pr-3 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
             >
-              <User className="h-3.5 w-3.5 text-sky-400" />
+              <UserAvatar
+                image={user?.image}
+                email={user?.email}
+                name={user?.name}
+                username={username}
+                size="xs"
+              />
               <span className="font-medium">@{username}</span>
             </button>
           </div>
@@ -266,7 +228,7 @@ export default function DocumentWorkspace({
       <UserProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
-        user={{ username }}
+        user={user ?? { username }}
       />
 
       {/* Main Workspace Container */}
