@@ -17,7 +17,10 @@ import {
   PlayCircle,
   CheckCircle2,
   BookOpen,
+  Loader2,
 } from "lucide-react";
+import SidebarSkeleton from "./sidebar-skeleton";
+import UserProfileModal from "@/app/components/auth/user-profile-modal";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -60,6 +63,9 @@ export default function DocumentChatWorkspace({
   username = "User",
 }: DocumentChatWorkspaceProps) {
   const [documentInfo, setDocumentInfo] = useState<DocumentInfo | null>(null);
+  const [isDocumentLoading, setIsDocumentLoading] = useState(true);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [activeClickedPrompt, setActiveClickedPrompt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [inputQuery, setInputQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -81,6 +87,7 @@ export default function DocumentChatWorkspace({
 
   async function loadDocumentDetails() {
     try {
+      setIsDocumentLoading(true);
       const res = await fetch(`/api/documents`, { cache: "no-store" });
       const data = await res.json();
 
@@ -96,6 +103,8 @@ export default function DocumentChatWorkspace({
       }
     } catch (e) {
       console.error("Failed to fetch document metadata:", e);
+    } finally {
+      setIsDocumentLoading(false);
     }
   }
 
@@ -187,6 +196,10 @@ export default function DocumentChatWorkspace({
         "This document is still being set up. Click 'Prepare Document Now' above to start asking questions."
       );
       return;
+    }
+
+    if (queryText) {
+      setActiveClickedPrompt(queryText);
     }
 
     setError(null);
@@ -326,6 +339,7 @@ export default function DocumentChatWorkspace({
       );
     } finally {
       setIsLoading(false);
+      setActiveClickedPrompt(null);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }
@@ -585,12 +599,22 @@ export default function DocumentChatWorkspace({
             </button>
           )}
 
-          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-slate-400">
-            <User className="h-3.5 w-3.5 text-slate-500" />
-            <span>@{username}</span>
-          </div>
+          <button
+            onClick={() => setIsProfileOpen(true)}
+            className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
+          >
+            <User className="h-3.5 w-3.5 text-sky-400" />
+            <span className="font-medium">@{username}</span>
+          </button>
         </div>
       </header>
+
+      {/* User Profile Popup Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={{ username }}
+      />
 
       {/* Indexing Warning Banner */}
       {!isFullyIndexed && (
@@ -627,71 +651,83 @@ export default function DocumentChatWorkspace({
       <div className="flex flex-1 overflow-hidden">
         {/* Left Side Details Panel */}
         <aside className="hidden w-72 flex-col border-r border-white/10 bg-[#0d1322] p-5 lg:flex">
-          <div className="mb-6">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Document Overview
-            </h2>
+          {isDocumentLoading ? (
+            <SidebarSkeleton />
+          ) : (
+            <>
+              <div className="mb-6">
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Document Overview
+                </h2>
 
-            <div className="mt-3 rounded-xl border border-white/10 bg-slate-900/60 p-4">
-              <p className="text-xs font-medium text-white truncate">
-                {documentInfo?.originalFilename || "Selected Document"}
-              </p>
+                <div className="mt-3 rounded-xl border border-white/10 bg-slate-900/60 p-4">
+                  <p className="text-xs font-medium text-white truncate">
+                    {documentInfo?.originalFilename || "Selected Document"}
+                  </p>
 
-              <div className="mt-3 space-y-2.5 text-[12px] text-slate-400">
-                <div className="flex justify-between">
-                  <span>Format:</span>
-                  <span className="font-medium text-slate-200">
-                    {fileExtensionUpper} Document
-                  </span>
-                </div>
+                  <div className="mt-3 space-y-2.5 text-[12px] text-slate-400">
+                    <div className="flex justify-between">
+                      <span>Format:</span>
+                      <span className="font-medium text-slate-200">
+                        {fileExtensionUpper} Document
+                      </span>
+                    </div>
 
-                <div className="flex justify-between">
-                  <span>Status:</span>
-                  <span
-                    className={`font-semibold ${
-                      isFullyIndexed ? "text-emerald-400" : "text-amber-400"
-                    }`}
-                  >
-                    {isFullyIndexed ? "Ready to Answer" : "Preparing"}
-                  </span>
-                </div>
+                    <div className="flex justify-between">
+                      <span>Status:</span>
+                      <span
+                        className={`font-semibold ${
+                          isFullyIndexed ? "text-emerald-400" : "text-amber-400"
+                        }`}
+                      >
+                        {isFullyIndexed ? "Ready to Answer" : "Preparing"}
+                      </span>
+                    </div>
 
-                <div className="flex justify-between">
-                  <span>Search Engine:</span>
-                  <span className="text-sky-400 font-medium">Smart Hybrid Search</span>
+                    <div className="flex justify-between">
+                      <span>Search Engine:</span>
+                      <span className="text-sky-400 font-medium">Smart Hybrid Search</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="flex-1">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Suggested Questions
-            </h2>
+              <div className="flex-1">
+                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Suggested Questions
+                </h2>
 
-            <div className="space-y-2">
-              {SUGGESTED_PROMPTS.map((promptText, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSendMessage(promptText)}
-                  disabled={isLoading || isIndexing}
-                  className="w-full text-left rounded-lg border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-300 transition hover:border-sky-500/30 hover:bg-sky-500/5 hover:text-white disabled:opacity-50"
-                >
-                  "{promptText}"
-                </button>
-              ))}
-            </div>
-          </div>
+                <div className="space-y-2">
+                  {SUGGESTED_PROMPTS.map((promptText, i) => {
+                    const isCurrentPromptLoading = activeClickedPrompt === promptText && isLoading;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => handleSendMessage(promptText)}
+                        disabled={isLoading || isIndexing}
+                        className="w-full flex items-center justify-between text-left rounded-lg border border-white/5 bg-white/[0.02] p-3 text-xs text-slate-300 transition hover:border-sky-500/30 hover:bg-sky-500/5 hover:text-white disabled:opacity-50"
+                      >
+                        <span>"{promptText}"</span>
+                        {isCurrentPromptLoading && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400 shrink-0 ml-2" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-          <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3.5 text-[11px] text-sky-300">
-            <p className="font-semibold text-sky-300 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-sky-400" />
-              <span>Verified Source Guarantee</span>
-            </p>
-            <p className="mt-1 text-slate-300">
-              Answers are directly created from your document content with verified section references.
-            </p>
-          </div>
+              <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-3.5 text-[11px] text-sky-300">
+                <p className="font-semibold text-sky-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-sky-400" />
+                  <span>Verified Source Guarantee</span>
+                </p>
+                <p className="mt-1 text-slate-300">
+                  Answers are directly created from your document content with verified section references.
+                </p>
+              </div>
+            </>
+          )}
         </aside>
 
         {/* Center Messages Area */}
@@ -887,7 +923,11 @@ export default function DocumentChatWorkspace({
                   disabled={!inputQuery.trim() || isLoading || isIndexing}
                   className="mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white transition hover:bg-sky-400 disabled:opacity-40 disabled:hover:bg-sky-500"
                 >
-                  <Send className="h-4 w-4" />
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
                 </button>
               </form>
 

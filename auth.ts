@@ -8,7 +8,15 @@ import {
   findUserByGoogleId,
 } from "@/features/auth/services/user.service";
 
+const SEVEN_DAYS_SECONDS = 7 * 24 * 60 * 60; // 7 days
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  session: {
+    strategy: "jwt",
+    maxAge: SEVEN_DAYS_SECONDS,
+    updateAge: 24 * 60 * 60, // refresh daily
+  },
+
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
@@ -61,6 +69,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (user) {
           token.userId = user._id.toString();
           token.username = user.username ?? null;
+          token.email = user.email;
         }
       }
 

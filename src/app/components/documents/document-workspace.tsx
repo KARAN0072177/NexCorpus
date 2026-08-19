@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import DocumentList from "./document-list";
-import { UploadCloud, FileText, Sparkles, ShieldCheck, Search, User, RefreshCw, CheckCircle2 } from "lucide-react";
+import UserProfileModal from "@/app/components/auth/user-profile-modal";
+import { UploadCloud, FileText, Sparkles, ShieldCheck, Search, User, RefreshCw, Loader2 } from "lucide-react";
 
 interface DocumentWorkspaceProps {
   username: string;
@@ -43,6 +44,8 @@ export default function DocumentWorkspace({
   username,
 }: DocumentWorkspaceProps) {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
@@ -51,6 +54,7 @@ export default function DocumentWorkspace({
 
   async function loadDocuments() {
     try {
+      setIsLoadingDocuments(true);
       const response = await fetch("/api/documents", {
         method: "GET",
         cache: "no-store",
@@ -66,6 +70,8 @@ export default function DocumentWorkspace({
     } catch (error) {
       console.error("Failed to load documents:", error);
       setError("Unable to load your documents.");
+    } finally {
+      setIsLoadingDocuments(false);
     }
   }
 
@@ -245,13 +251,23 @@ export default function DocumentWorkspace({
               <span>Refresh</span>
             </button>
 
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3.5 py-1 text-xs text-slate-300">
-              <User className="h-3.5 w-3.5 text-slate-500" />
-              <span>@{username}</span>
-            </div>
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3.5 py-1.5 text-xs text-sky-300 transition hover:border-sky-400 hover:bg-sky-500/20"
+            >
+              <User className="h-3.5 w-3.5 text-sky-400" />
+              <span className="font-medium">@{username}</span>
+            </button>
           </div>
         </div>
       </header>
+
+      {/* User Profile Popup Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={{ username }}
+      />
 
       {/* Main Workspace Container */}
       <div className="mx-auto max-w-7xl px-6 py-10">
@@ -372,7 +388,7 @@ export default function DocumentWorkspace({
             </span>
           </div>
 
-          <DocumentList documents={documents} />
+          <DocumentList documents={documents} isLoading={isLoadingDocuments} />
         </section>
       </div>
     </main>
