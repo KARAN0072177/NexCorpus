@@ -94,6 +94,12 @@ export default function DocumentWorkspace({
     setDocuments((prev) => prev.filter((doc) => doc.id !== documentId));
   }
 
+  function getExtension(filename: string) {
+    const lastDot = filename.lastIndexOf(".");
+    if (lastDot === -1) return ".pdf";
+    return filename.slice(lastDot).toLowerCase();
+  }
+
   async function uploadFile(file: File) {
     setError("");
     setUploadMessage("");
@@ -101,28 +107,55 @@ export default function DocumentWorkspace({
     setUploadProgressStep(1);
 
     try {
-      setUploadMessage("Initiating secure upload...");
-      const initResponse = await fetch("/api/documents/upload", {
+      /*
+       * STEP 1: Create Document Record in DB
+       */
+      setUploadMessage("Reading document details...");
+      const createResponse = await fetch("/api/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "application/pdf",
+          originalFilename: file.name,
+          mimeType: file.type || "application/pdf",
+          extension: getExtension(file.name),
           size: file.size,
         }),
       });
 
-      const initData = await initResponse.json();
+      const createData = await createResponse.json();
 
-      if (!initResponse.ok) {
-        throw new Error(initData.error ?? "Upload initialization failed");
+      if (!createResponse.ok) {
+        throw new Error(createData.error ?? "Unable to start file upload");
       }
 
-      const { uploadUrl, documentId } = initData.data;
+      const documentId = createData.document.id;
 
+      /*
+       * STEP 2: Obtain Presigned S3 Upload Link
+       */
       setUploadProgressStep(2);
+      setUploadMessage("Preparing secure upload link...");
+      const presignedResponse = await fetch(
+        `/api/documents/${documentId}/upload`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contentType: file.type || "application/pdf" }),
+        }
+      );
+
+      const presignedData = await presignedResponse.json();
+
+      if (!presignedResponse.ok) {
+        throw new Error(presignedData.error ?? "Unable to prepare upload");
+      }
+
+      /*
+       * STEP 3: Upload Directly to S3 Storage
+       */
+      setUploadProgressStep(3);
       setUploadMessage("Uploading file to secure storage...");
-      const s3UploadResponse = await fetch(uploadUrl, {
+      const s3UploadResponse = await fetch(presignedData.uploadUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type || "application/pdf" },
         body: file,
@@ -132,8 +165,11 @@ export default function DocumentWorkspace({
         throw new Error("Failed to upload file to storage");
       }
 
-      setUploadProgressStep(3);
-      setUploadMessage("Scanning file safety and verifying content...");
+      /*
+       * STEP 4: Complete Upload & Trigger Ingestion Pipeline
+       */
+      setUploadProgressStep(4);
+      setUploadMessage("Analyzing document & building search index...");
       const completeResponse = await fetch(
         `/api/documents/${documentId}/upload/complete`,
         { method: "POST" }
@@ -146,7 +182,7 @@ export default function DocumentWorkspace({
       }
 
       setUploadProgressStep(4);
-      setUploadMessage("Document uploaded successfully! Analyzing content...");
+      setUploadMessage("Document uploaded successfully! Ready to answer questions.");
       await loadDocuments();
 
       setTimeout(() => {
